@@ -34,6 +34,7 @@ function activateTab(name) {
   if (name === "tables") renderTablesTab();
   if (name === "relations") renderRelationsTab();
   if (name === "modules") renderModulesTab();
+  if (name === "kpis") renderKpisTab();
   if (name === "units") renderUnitsTab();
   location.hash = name;
 }
@@ -547,9 +548,10 @@ function renderModuleEditor() {
   const ed = document.getElementById("moduleEditor");
   if (!currentModuleId) { ed.innerHTML = `<p class="text-sm text-zinc-500">Sélectionnez un module.</p>`; return; }
   const mod = MODULES.find((m) => m.id === currentModuleId);
-  const cfg = schema.moduleConfigs[currentModuleId] || { tableId: "", visibleColumns: [], editableColumns: [], filters: [], selectors: [], joinedColumns: [] };
+  const cfg = schema.moduleConfigs[currentModuleId] || { tableId: "", visibleColumns: [], editableColumns: [], filters: [], selectors: [], joinedColumns: [], kpis: [] };
   cfg.selectors = cfg.selectors || [];
   cfg.joinedColumns = cfg.joinedColumns || [];
+  cfg.kpis = cfg.kpis || [];
   schema.moduleConfigs[currentModuleId] = cfg;
 
   const tables = Object.values(schema.tables);
@@ -614,6 +616,18 @@ function renderModuleEditor() {
         <div id="filtersList" class="space-y-2"></div>
       </div>
 
+      <div class="mb-5">
+        <h4 class="mb-2 text-sm font-semibold text-zinc-900">Compteurs KPI à afficher</h4>
+        ${(schema.kpis || []).length === 0
+          ? `<p class="text-xs text-zinc-500">Aucun KPI défini. <a class="font-medium text-indigo-600 hover:underline" href="#kpis">Créer un KPI</a></p>`
+          : `<div class="grid gap-2 sm:grid-cols-2">${(schema.kpis || []).map((k) => `
+              <label class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                <input data-kpi="${k.id}" type="checkbox" ${cfg.kpis.includes(k.id)?'checked':''} />
+                <span class="truncate">${escapeHtml(k.name)}</span>
+              </label>
+            `).join("")}</div>`}
+      </div>
+
       <div class="mt-6 border-t border-zinc-100 pt-4 text-right">
         <a href="module.html?id=${encodeURIComponent(currentModuleId)}" target="_blank" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white">Aperçu →</a>
       </div>
@@ -664,6 +678,13 @@ function renderModuleEditor() {
     renderFiltersList(table, cfg);
     renderSelectorsList(table, cfg);
     renderJoinsList(table, cfg);
+
+    ed.querySelectorAll("[data-kpi]").forEach((el) => el.addEventListener("change", () => {
+      const id = el.dataset.kpi;
+      if (el.checked) { if (!cfg.kpis.includes(id)) cfg.kpis.push(id); }
+      else cfg.kpis = cfg.kpis.filter((x) => x !== id);
+      persist();
+    }));
   }
 }
 
@@ -756,6 +777,172 @@ function renderFiltersList(table, cfg) {
     cfg.filters.splice(+b.dataset.delf, 1); persist(); renderFiltersList(table, cfg);
   }));
 }
+
+// ============================================================
+// ============ KPIs TAB ======================================
+// ============================================================
+let currentKpiId = null;
+
+function renderKpisTab() {
+  schema.kpis = schema.kpis || [];
+  const list = document.getElementById("kpiList");
+  if (schema.kpis.length === 0) {
+    list.innerHTML = `<p class="px-2 py-4 text-sm text-zinc-500">Aucun KPI.</p>`;
+  } else {
+    list.innerHTML = schema.kpis.map((k) => `
+      <button data-id="${k.id}" class="kpiItem w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-100 ${currentKpiId===k.id?'bg-indigo-50 text-indigo-700':'text-zinc-700'}">
+        <span class="truncate">${escapeHtml(k.name || "Sans nom")}</span>
+        <span class="text-xs text-zinc-400">${k.distinctColumn ? "≠" : "#"}</span>
+      </button>
+    `).join("");
+    list.querySelectorAll(".kpiItem").forEach((el) => el.addEventListener("click", () => {
+      currentKpiId = el.dataset.id; renderKpisTab();
+    }));
+  }
+  renderKpiEditor();
+}
+
+function renderKpiEditor() {
+  const ed = document.getElementById("kpiEditor");
+  const k = currentKpiId ? schema.kpis.find((x) => x.id === currentKpiId) : null;
+  if (!k) { ed.innerHTML = `<p class="text-sm text-zinc-500">Sélectionnez ou créez un KPI.</p>`; return; }
+  const tables = Object.values(schema.tables);
+  const table = schema.tables[k.tableId];
+
+  ed.innerHTML = `
+    <div class="mb-5 flex items-center justify-between gap-3">
+      <input id="kpiName" value="${escapeAttr(k.name)}" placeholder="Nom du KPI" class="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-base font-semibold text-zinc-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20" />
+      <button id="deleteKpiBtn" class="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">Supprimer</button>
+    </div>
+
+    <div class="mb-5 grid gap-3 sm:grid-cols-2">
+      <div>
+        <label class="mb-1 block text-xs font-medium text-zinc-600">Table source</label>
+        <select id="kpiTable" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+          <option value="">— Aucune —</option>
+          ${tables.map((t) => `<option value="${t.id}" ${k.tableId===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium text-zinc-600">Couleur</label>
+        <select id="kpiColor" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+          ${KPI_COLORS.map((c) => `<option value="${c.v}" ${k.color===c.v?'selected':''}>${c.v}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+
+    ${table ? `
+      <div class="mb-5">
+        <label class="mb-1 block text-xs font-medium text-zinc-600">Type de comptage</label>
+        <select id="kpiMode" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+          <option value="count" ${!k.distinctColumn?'selected':''}>Nombre de lignes</option>
+          <option value="distinct" ${k.distinctColumn?'selected':''}>Nombre de valeurs distinctes</option>
+        </select>
+      </div>
+
+      <div id="kpiDistinctWrap" class="mb-5 ${k.distinctColumn?'':'hidden'}">
+        <label class="mb-1 block text-xs font-medium text-zinc-600">Colonne (valeurs distinctes)</label>
+        <select id="kpiDistinctCol" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+          ${table.columns.map((c) => `<option value="${c.id}" ${k.distinctColumn===c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join("")}
+        </select>
+      </div>
+
+      <div class="mb-5">
+        <label class="mb-1 block text-xs font-medium text-zinc-600">Colonne unité (optionnel)</label>
+        <select id="kpiUnitCol" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+          <option value="">— auto-détection —</option>
+          ${table.columns.map((c) => `<option value="${c.id}" ${k.unitColumn===c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join("")}
+        </select>
+      </div>
+
+      <div class="mb-5">
+        <div class="mb-2 flex items-center justify-between">
+          <h4 class="text-sm font-semibold text-zinc-900">Filtres</h4>
+          <button id="kpiAddFilter" class="text-xs font-medium text-indigo-600 hover:text-indigo-700">+ Ajouter</button>
+        </div>
+        <div id="kpiFilters" class="space-y-2"></div>
+      </div>
+
+      <div class="mt-6 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
+        <p class="text-xs font-medium uppercase tracking-wide text-zinc-500">Aperçu (unité ${escapeHtml(getCurrentUnit() || "—")})</p>
+        <p class="mt-1 text-3xl font-bold text-zinc-900" id="kpiPreview">—</p>
+      </div>
+    ` : `<p class="text-sm text-zinc-500">Choisissez une table.</p>`}
+  `;
+
+  document.getElementById("kpiName").addEventListener("change", (e) => { k.name = e.target.value.trim() || k.name; persist(); renderKpisTab(); });
+  document.getElementById("deleteKpiBtn").addEventListener("click", () => {
+    if (!confirm(`Supprimer le KPI "${k.name}" ?`)) return;
+    schema.kpis = schema.kpis.filter((x) => x.id !== k.id);
+    Object.values(schema.moduleConfigs).forEach((c) => { if (c.kpis) c.kpis = c.kpis.filter((id) => id !== k.id); });
+    currentKpiId = null; persist(); renderKpisTab();
+  });
+  document.getElementById("kpiTable").addEventListener("change", (e) => {
+    k.tableId = e.target.value; k.filters = []; k.distinctColumn = ""; k.unitColumn = "";
+    persist(); renderKpiEditor();
+  });
+  document.getElementById("kpiColor").addEventListener("change", (e) => { k.color = e.target.value; persist(); });
+
+  if (table) {
+    document.getElementById("kpiMode").addEventListener("change", (e) => {
+      if (e.target.value === "distinct") {
+        k.distinctColumn = k.distinctColumn || table.columns[0]?.id || "";
+      } else {
+        k.distinctColumn = "";
+      }
+      persist(); renderKpiEditor();
+    });
+    const dc = document.getElementById("kpiDistinctCol");
+    if (dc) dc.addEventListener("change", (e) => { k.distinctColumn = e.target.value; persist(); refreshKpiPreview(k); });
+    document.getElementById("kpiUnitCol").addEventListener("change", (e) => { k.unitColumn = e.target.value; persist(); refreshKpiPreview(k); });
+    document.getElementById("kpiAddFilter").addEventListener("click", () => {
+      k.filters = k.filters || [];
+      k.filters.push({ column: table.columns[0]?.id || "", op: "eq", value: "" });
+      persist(); renderKpiEditor();
+    });
+    renderKpiFilters(k, table);
+    refreshKpiPreview(k);
+  }
+}
+
+function renderKpiFilters(k, table) {
+  k.filters = k.filters || [];
+  const c = document.getElementById("kpiFilters");
+  if (k.filters.length === 0) { c.innerHTML = `<p class="text-xs text-zinc-500">Aucun filtre.</p>`; return; }
+  c.innerHTML = k.filters.map((f, i) => `
+    <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <select data-i="${i}" data-f="column" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        ${table.columns.map((c) => `<option value="${c.id}" ${f.column===c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join("")}
+      </select>
+      <select data-i="${i}" data-f="op" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        ${FILTER_OPS.map((o) => `<option value="${o.v}" ${f.op===o.v?'selected':''}>${o.label}</option>`).join("")}
+      </select>
+      <input data-i="${i}" data-f="value" value="${escapeAttr(f.value||"")}" class="flex-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm" ${["empty","notempty"].includes(f.op)?'disabled':''} placeholder="valeur" />
+      <button data-delf="${i}" class="text-red-500 hover:text-red-700">✕</button>
+    </div>
+  `).join("");
+  c.querySelectorAll("[data-f]").forEach((el) => el.addEventListener("change", () => {
+    k.filters[+el.dataset.i][el.dataset.f] = el.value;
+    persist(); renderKpiFilters(k, table); refreshKpiPreview(k);
+  }));
+  c.querySelectorAll("[data-delf]").forEach((b) => b.addEventListener("click", () => {
+    k.filters.splice(+b.dataset.delf, 1); persist(); renderKpiFilters(k, table); refreshKpiPreview(k);
+  }));
+}
+
+function refreshKpiPreview(k) {
+  const el = document.getElementById("kpiPreview");
+  if (!el) return;
+  const r = computeKpi(k, schema);
+  el.textContent = r.valid ? r.value : "—";
+}
+
+document.getElementById("newKpiBtn").addEventListener("click", () => {
+  const id = uid("kpi");
+  schema.kpis = schema.kpis || [];
+  schema.kpis.push({ id, name: "Nouveau KPI", tableId: "", filters: [], color: "indigo" });
+  currentKpiId = id; persist(); renderKpisTab();
+});
 
 // ============================================================
 // ============ UNITS TAB =====================================

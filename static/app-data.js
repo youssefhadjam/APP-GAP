@@ -41,7 +41,7 @@ const FILTER_OPS = [
 ];
 
 function defaultSchema() {
-  return { tables: {}, relations: [], moduleConfigs: {}, units: [] };
+  return { tables: {}, relations: [], moduleConfigs: {}, units: [], kpis: [] };
 }
 
 async function loadSchema() {
@@ -64,6 +64,7 @@ async function loadSchema() {
       relations: parsed.relations || [],
       moduleConfigs: parsed.moduleConfigs || {},
       units: parsed.units || [],
+      kpis: parsed.kpis || [],
     };
   } catch {
     return defaultSchema();
@@ -128,6 +129,44 @@ function otherSideOfRelation(rel, tableId, schema) {
   if (rel.toTable === tableId) return { table: schema.tables[rel.fromTable], col: rel.fromColumn };
   return { table: null, col: null };
 }
+
+// Calcule la valeur d'un KPI dans le contexte (unité courante prise en compte automatiquement).
+// kpi : { id, name, tableId, filters, distinctColumn?, color? }
+function computeKpi(kpi, schema) {
+  const table = schema.tables[kpi.tableId];
+  if (!table) return { value: 0, valid: false };
+  // filtre par unité (auto-détecté ou colonne nommée)
+  const unit = getCurrentUnit();
+  let unitColId = kpi.unitColumn;
+  if (!unitColId && unit) {
+    const auto = table.columns.find((c) => /^(unit[ée]|u|unit)$/i.test(c.name.trim()));
+    if (auto) unitColId = auto.id;
+  }
+  let rows = table.rows;
+  if (unitColId && unit) {
+    const target = String(unit).trim().toLowerCase();
+    rows = rows.filter((r) => String(r[unitColId] ?? "").trim().toLowerCase() === target);
+  }
+  rows = applyFilters(rows, kpi.filters || [], table.columns);
+  if (kpi.distinctColumn) {
+    const set = new Set();
+    for (const r of rows) {
+      const v = r[kpi.distinctColumn];
+      if (v !== undefined && v !== null && v !== "") set.add(String(v));
+    }
+    return { value: set.size, valid: true };
+  }
+  return { value: rows.length, valid: true };
+}
+
+const KPI_COLORS = [
+  { v: "indigo", bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-200" },
+  { v: "emerald", bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" },
+  { v: "amber", bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
+  { v: "rose", bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200" },
+  { v: "sky", bg: "bg-sky-50", text: "text-sky-700", border: "border-sky-200" },
+  { v: "violet", bg: "bg-violet-50", text: "text-violet-700", border: "border-violet-200" },
+];
 
 function applyFilters(rows, filters, columns) {
   if (!filters || filters.length === 0) return rows;

@@ -124,8 +124,24 @@ function renderTable(table, cfg) {
     return { id: s.id, col: s.col, distinct, totalCount: scoped.length };
   });
 
+  // KPIs du module
+  const moduleKpis = (cfg.kpis || []).map((id) => (schema.kpis || []).find((k) => k.id === id)).filter(Boolean);
+  const kpisHtml = moduleKpis.length === 0 ? "" : `
+    <div class="mb-4 grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+      ${moduleKpis.map((k) => {
+        const c = (KPI_COLORS.find((x) => x.v === (k.color || "indigo")) || KPI_COLORS[0]);
+        const r = computeKpi(k, schema);
+        return `<div class="rounded-2xl border ${c.border} ${c.bg} p-4">
+          <p class="text-xs font-medium uppercase tracking-wide ${c.text}">${escapeHtml(k.name)}</p>
+          <p class="mt-1 text-3xl font-bold ${c.text}">${r.valid ? r.value : "—"}</p>
+        </div>`;
+      }).join("")}
+    </div>
+  `;
+
   const content = document.getElementById("content");
   content.innerHTML = `
+    ${kpisHtml}
     <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-zinc-900">${escapeHtml(mod.label)}</h1>
@@ -199,30 +215,7 @@ function renderTable(table, cfg) {
         return String(val ?? "").toLowerCase().includes(search);
       }));
     }
-    // Compte de lignes distinctes (sur l'ensemble des colonnes visibles)
-    const seen = new Set();
-    let distinctCount = 0;
-    for (const row of filtered) {
-      const key = allCols.map((c) => {
-        if (c.kind === "join") return String(getJoinedValue(row, table, c.jc, schema) ?? "");
-        return String(row[c.id] ?? "");
-      }).join("");
-      if (!seen.has(key)) { seen.add(key); distinctCount++; }
-    }
-
-    // Compte de valeurs distinctes par sélecteur
-    const selectorStats = selectors.map((s) => {
-      const set = new Set();
-      for (const r of filtered) {
-        const v = r[s.col.id];
-        if (v !== undefined && v !== null && v !== "") set.add(String(v));
-      }
-      return { name: s.col.name, count: set.size };
-    });
-
-    const dupNote = filtered.length !== distinctCount ? ` · <span class="text-emerald-700 font-medium">${distinctCount}</span> sans doublon` : "";
-    const selStats = selectorStats.map((s) => `<span class="text-zinc-700"><span class="font-medium">${s.count}</span> ${escapeHtml(s.name)} distinct(s)</span>`).join(" · ");
-    meta.innerHTML = `<span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 font-medium text-indigo-700">${filtered.length}</span> / ${baseRows.length} ligne(s)${dupNote}${selStats ? " · " + selStats : ""}`;
+    meta.innerHTML = `<span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 font-medium text-indigo-700">${filtered.length}</span> / ${baseRows.length} ligne(s) · ${allCols.length} colonne(s)`;
 
     if (filtered.length === 0) {
       tb.innerHTML = `<tr><td colspan="${allCols.length}" class="px-4 py-6 text-center text-sm text-zinc-500">Aucune ligne.</td></tr>`;
