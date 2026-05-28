@@ -44,31 +44,52 @@ function defaultSchema() {
   return { tables: {}, relations: [], moduleConfigs: {}, units: [], kpis: [] };
 }
 
+function _normalize(parsed) {
+  if (!parsed) return defaultSchema();
+  return {
+    tables: parsed.tables || {},
+    relations: parsed.relations || [],
+    moduleConfigs: parsed.moduleConfigs || {},
+    units: parsed.units || [],
+    kpis: parsed.kpis || [],
+  };
+}
+
 async function loadSchema() {
+  // 1) Supabase (source de vérité)
+  if (typeof sb !== "undefined") {
+    try {
+      const { data, error } = await sb.from("app_state").select("data").eq("key", "main").maybeSingle();
+      if (!error && data && data.data) {
+        const norm = _normalize(data.data);
+        try { await idbKeyval.set(STORE_KEY, norm); } catch {}
+        return norm;
+      }
+      if (error) console.warn("Supabase load error", error);
+    } catch (e) {
+      console.warn("Supabase indisponible, fallback IDB", e);
+    }
+  }
+  // 2) Cache local IDB
+  let parsed = null;
   try {
-    let parsed = await idbKeyval.get(STORE_KEY);
+    parsed = await idbKeyval.get(STORE_KEY);
     if (!parsed) {
-      // Migration depuis localStorage si présent
       try {
         const raw = localStorage.getItem(STORE_KEY);
-        if (raw) {
-          parsed = JSON.parse(raw);
-          await idbKeyval.set(STORE_KEY, parsed);
-          localStorage.removeItem(STORE_KEY);
-        }
+        if (raw) { parsed = JSON.parse(raw); localStorage.removeItem(STORE_KEY); }
       } catch {}
     }
-    if (!parsed) return defaultSchema();
-    return {
-      tables: parsed.tables || {},
-      relations: parsed.relations || [],
-      moduleConfigs: parsed.moduleConfigs || {},
-      units: parsed.units || [],
-      kpis: parsed.kpis || [],
-    };
-  } catch {
-    return defaultSchema();
+  } catch {}
+  const norm = _normalize(parsed);
+  // Si Supabase est vide mais l'IDB contient des données → push initial
+  if (parsed && typeof sb !== "undefined") {
+    sb.from("app_state").upsert({ key: "main", data: norm, updated_at: new Date().toISOString() }).then(({ error }) => {
+      if (error) console.warn("Initial upload failed", error);
+      else _showSyncOk();
+    });
   }
+  return norm;
 }
 
 function getCurrentUnit() {
@@ -83,12 +104,42 @@ function setCurrentUnit(u) {
 
 let _saveQueue = Promise.resolve();
 function saveSchema(s) {
-  // sérialise les écritures pour éviter les conflits
-  _saveQueue = _saveQueue.then(() => idbKeyval.set(STORE_KEY, s)).catch((e) => {
-    console.error("saveSchema error", e);
-    alert("Erreur d'enregistrement : " + (e?.message || e));
-  });
+  _saveQueue = _saveQueue
+    .then(async () => {
+      try { await idbKeyval.set(STORE_KEY, s); } catch (e) { console.warn("IDB save failed", e); }
+      if (typeof sb !== "undefined") {
+        _showSyncing();
+        const { error } = await sb.from("app_state").upsert({ key: "main", data: s, updated_at: new Date().toISOString() });
+        if (error) {
+          console.error("Supabase save error", error);
+          _showSyncError(error.message || String(error));
+        } else {
+          _showSyncOk();
+        }
+      }
+    })
+    .catch((e) => { console.error("saveSchema error", e); });
   return _saveQueue;
+}
+
+function _showSyncing() {
+  const el = document.getElementById("syncStatus");
+  if (!el) return;
+  el.textContent = "Synchronisation…";
+  el.className = "text-xs text-zinc-500";
+}
+function _showSyncOk() {
+  const el = document.getElementById("syncStatus");
+  if (!el) return;
+  el.textContent = "✓ Synchronisé";
+  el.className = "text-xs text-emerald-600";
+}
+function _showSyncError(msg) {
+  const el = document.getElementById("syncStatus");
+  if (!el) return;
+  el.textContent = "⚠ Sync échouée";
+  el.title = msg;
+  el.className = "text-xs text-amber-600";
 }
 
 function uid(prefix) {
