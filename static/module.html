@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>APP-GAP — Module</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
 <style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}</style>
 </head>
 <body class="min-h-screen bg-slate-50">
@@ -38,13 +39,16 @@ try { if (sessionStorage.getItem("session") !== "admin") window.location.href = 
 const params = new URLSearchParams(location.search);
 const moduleId = params.get("id");
 const mod = MODULES.find((m) => m.id === moduleId);
-const schema = loadSchema();
+let schema = { tables: {}, relations: [], moduleConfigs: {} };
 
 document.getElementById("cfgLink").href = `admin.html#modules`;
 
-if (!mod) {
-  document.getElementById("content").innerHTML = `<p class="text-sm text-zinc-500">Module introuvable.</p>`;
-} else {
+(async () => {
+  schema = await loadSchema();
+  if (!mod) {
+    document.getElementById("content").innerHTML = `<p class="text-sm text-zinc-500">Module introuvable.</p>`;
+    return;
+  }
   document.getElementById("modTitle").textContent = mod.label;
   const cfg = schema.moduleConfigs[mod.id];
   const table = cfg?.tableId ? schema.tables[cfg.tableId] : null;
@@ -60,7 +64,7 @@ if (!mod) {
   } else {
     renderTable(table, cfg);
   }
-}
+})();
 
 function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])); }
 function escapeAttr(s) { return escapeHtml(s); }

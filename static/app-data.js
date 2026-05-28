@@ -1,4 +1,4 @@
-// Schéma global, stocké dans localStorage.
+// Schéma global, stocké dans IndexedDB (via idb-keyval, chargé en CDN).
 // Forme :
 // {
 //   tables: { [tableId]: { id, name, columns: [{id,name,type,editable}], rows: [{...}] } },
@@ -44,11 +44,21 @@ function defaultSchema() {
   return { tables: {}, relations: [], moduleConfigs: {} };
 }
 
-function loadSchema() {
+async function loadSchema() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return defaultSchema();
-    const parsed = JSON.parse(raw);
+    let parsed = await idbKeyval.get(STORE_KEY);
+    if (!parsed) {
+      // Migration depuis localStorage si présent
+      try {
+        const raw = localStorage.getItem(STORE_KEY);
+        if (raw) {
+          parsed = JSON.parse(raw);
+          await idbKeyval.set(STORE_KEY, parsed);
+          localStorage.removeItem(STORE_KEY);
+        }
+      } catch {}
+    }
+    if (!parsed) return defaultSchema();
     return {
       tables: parsed.tables || {},
       relations: parsed.relations || [],
@@ -59,8 +69,14 @@ function loadSchema() {
   }
 }
 
+let _saveQueue = Promise.resolve();
 function saveSchema(s) {
-  localStorage.setItem(STORE_KEY, JSON.stringify(s));
+  // sérialise les écritures pour éviter les conflits
+  _saveQueue = _saveQueue.then(() => idbKeyval.set(STORE_KEY, s)).catch((e) => {
+    console.error("saveSchema error", e);
+    alert("Erreur d'enregistrement : " + (e?.message || e));
+  });
+  return _saveQueue;
 }
 
 function uid(prefix) {

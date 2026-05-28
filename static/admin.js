@@ -6,13 +6,18 @@ try {
 } catch {}
 
 // ====== State ======
-let schema = loadSchema();
+let schema = { tables: {}, relations: [], moduleConfigs: {} };
 let currentTableId = null;
 let currentModuleId = null;
 
 function persist() {
   saveSchema(schema);
 }
+
+(async () => {
+  schema = await loadSchema();
+  activateTab((location.hash || "#tables").slice(1));
+})();
 
 // ====== Tabs ======
 const tabs = document.querySelectorAll(".tab");
@@ -32,7 +37,6 @@ function activateTab(name) {
   location.hash = name;
 }
 tabs.forEach((t) => t.addEventListener("click", () => activateTab(t.dataset.tab)));
-activateTab((location.hash || "#tables").slice(1));
 
 // ====== Modal ======
 const modal = document.getElementById("modal");
@@ -82,7 +86,7 @@ document.getElementById("importFile").addEventListener("change", async (e) => {
       relations: parsed.relations || [],
       moduleConfigs: parsed.moduleConfigs || {},
     };
-    persist();
+    await saveSchema(schema);
     activateTab(location.hash.slice(1) || "tables");
   } catch { alert("Fichier invalide"); }
   e.target.value = "";
