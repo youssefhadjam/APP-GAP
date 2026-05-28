@@ -1,19 +1,39 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function LoginForm() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
-    // TODO: brancher l'authentification
-    setTimeout(() => setSubmitting(false), 600);
+    setError(null);
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Erreur de connexion");
+        return;
+      }
+      router.push("/dashboard");
+      router.refresh();
+    } catch {
+      setError("Erreur réseau");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -23,16 +43,16 @@ export default function LoginForm() {
           htmlFor="email"
           className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
         >
-          Email
+          Identifiant
         </label>
         <input
           id="email"
-          type="email"
-          autoComplete="email"
+          type="text"
+          autoComplete="username"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="vous@exemple.com"
+          placeholder="admin"
           className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder-zinc-600"
         />
       </div>
@@ -88,6 +108,12 @@ export default function LoginForm() {
         Se souvenir de moi
       </label>
 
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
       <button
         type="submit"
         disabled={submitting}
@@ -96,22 +122,8 @@ export default function LoginForm() {
         {submitting ? "Connexion…" : "Se connecter"}
       </button>
 
-      <div className="relative py-1">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-zinc-200 dark:border-zinc-800" />
-        </div>
-        <div className="relative flex justify-center text-xs">
-          <span className="bg-white px-2 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-500">
-            ou
-          </span>
-        </div>
-      </div>
-
-      <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
-        Pas de compte ?{" "}
-        <a href="#" className="font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">
-          Créer un compte
-        </a>
+      <p className="rounded-lg bg-zinc-50 px-3 py-2 text-center text-xs text-zinc-500 dark:bg-zinc-950 dark:text-zinc-500">
+        Compte de test : <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300">admin</span> / <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300">admin</span>
       </p>
     </form>
   );
