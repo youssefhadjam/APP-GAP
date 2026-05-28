@@ -82,8 +82,8 @@
     const password = pwd.value;
     const err = document.getElementById("error");
     if (email === "admin" && password === "admin") {
-      try { sessionStorage.setItem("session", "admin"); } catch {}
-      window.location.href = "dashboard.html";
+      try { sessionStorage.setItem("session", "admin"); sessionStorage.removeItem("currentUnit"); } catch {}
+      window.location.href = "select-unit.html";
     } else {
       err.textContent = "Identifiants invalides";
       err.classList.remove("hidden");

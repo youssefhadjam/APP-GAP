@@ -34,6 +34,7 @@ function activateTab(name) {
   if (name === "tables") renderTablesTab();
   if (name === "relations") renderRelationsTab();
   if (name === "modules") renderModulesTab();
+  if (name === "units") renderUnitsTab();
   location.hash = name;
 }
 tabs.forEach((t) => t.addEventListener("click", () => activateTab(t.dataset.tab)));
@@ -143,7 +144,7 @@ function renderTableEditor() {
         </div>
       </div>
       <div class="overflow-x-auto rounded-lg border border-zinc-200">
-        <table class="text-sm table-fixed" style="width:${t.columns.length*180+40}px">
+        <table class="w-full text-sm table-fixed" style="min-width:${t.columns.length*180+40}px">
           <colgroup>${t.columns.map(() => `<col style="width:180px" />`).join("")}<col style="width:40px" /></colgroup>
           <thead class="sticky top-[100px] z-[5] bg-zinc-50 shadow-[0_1px_0_0_#e4e4e7]">
             <tr>${t.columns.map((c) => `<th title="${escapeAttr(c.name)}" class="px-3 py-2 text-left font-medium text-zinc-700 truncate"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal text-zinc-400">${c.type}</span></th>`).join("")}<th></th></tr>
@@ -755,6 +756,64 @@ function renderFiltersList(table, cfg) {
     cfg.filters.splice(+b.dataset.delf, 1); persist(); renderFiltersList(table, cfg);
   }));
 }
+
+// ============================================================
+// ============ UNITS TAB =====================================
+// ============================================================
+function renderUnitsTab() {
+  schema.units = schema.units || [];
+  const list = document.getElementById("unitsList");
+  if (schema.units.length === 0) {
+    list.innerHTML = `<p class="text-xs text-zinc-500">Aucune unité.</p>`;
+  } else {
+    list.innerHTML = schema.units.map((u, i) => `
+      <span class="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-sm text-zinc-800">
+        ${escapeHtml(u)}
+        <button data-deluni="${i}" class="text-red-500 hover:text-red-700">✕</button>
+      </span>
+    `).join("");
+    list.querySelectorAll("[data-deluni]").forEach((b) => b.addEventListener("click", () => {
+      schema.units.splice(+b.dataset.deluni, 1); persist(); renderUnitsTab();
+    }));
+  }
+
+  // Liaison colonne d'unité par module
+  const mlist = document.getElementById("unitModulesList");
+  mlist.innerHTML = MODULES.map((m) => {
+    const cfg = schema.moduleConfigs[m.id];
+    const table = cfg?.tableId ? schema.tables[cfg.tableId] : null;
+    if (!table) {
+      return `<div class="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2 text-sm text-zinc-400">
+        <span>${escapeHtml(m.label)}</span><span class="text-xs">aucune table</span>
+      </div>`;
+    }
+    return `<div class="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+      <span class="text-zinc-800">${escapeHtml(m.label)} <span class="text-xs text-zinc-400">· ${escapeHtml(table.name)}</span></span>
+      <select data-unitmod="${m.id}" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        <option value="">— aucune —</option>
+        ${table.columns.map((c) => `<option value="${c.id}" ${cfg.unitColumn===c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join("")}
+      </select>
+    </div>`;
+  }).join("");
+  mlist.querySelectorAll("[data-unitmod]").forEach((el) => el.addEventListener("change", () => {
+    const id = el.dataset.unitmod;
+    schema.moduleConfigs[id].unitColumn = el.value || "";
+    persist();
+  }));
+}
+
+function addUnit() {
+  const input = document.getElementById("newUnitName");
+  const v = input.value.trim();
+  if (!v) return;
+  schema.units = schema.units || [];
+  if (!schema.units.includes(v)) schema.units.push(v);
+  input.value = "";
+  persist(); renderUnitsTab();
+}
+document.getElementById("addUnitInline").addEventListener("click", addUnit);
+document.getElementById("newUnitName").addEventListener("keydown", (e) => { if (e.key === "Enter") addUnit(); });
+document.getElementById("addUnitBtn").addEventListener("click", () => document.getElementById("newUnitName").focus());
 
 // ============================================================
 function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])); }

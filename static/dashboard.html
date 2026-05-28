@@ -27,6 +27,7 @@
         <p class="text-sm font-medium text-zinc-900">admin</p>
         <p class="text-xs text-zinc-500">Administrateur</p>
       </div>
+      <a href="select-unit.html" class="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50">Changer d'unité</a>
       <button id="logout" class="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50">
         Déconnexion
       </button>
@@ -36,9 +37,9 @@
 
 <main class="mx-auto max-w-7xl px-6 py-8">
   <div class="mb-8">
-    <div class="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+    <div id="unitBadge" class="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
       <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
-      U13-14-22
+      <span id="unitLabel">—</span>
     </div>
     <h1 class="mt-3 text-2xl font-semibold tracking-tight text-zinc-900">Tableau de bord</h1>
     <p class="mt-1 text-sm text-zinc-500">Accédez à l'ensemble des modules opérationnels.</p>
@@ -55,6 +56,8 @@
   </div>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
+<script src="app-data.js"></script>
 <script>
   // Protection simple
   try {
@@ -63,8 +66,15 @@
     }
   } catch {}
 
+  const _unit = getCurrentUnit();
+  if (!_unit) {
+    window.location.href = "select-unit.html";
+  } else {
+    document.getElementById("unitLabel").textContent = _unit;
+  }
+
   document.getElementById("logout").addEventListener("click", () => {
-    try { sessionStorage.removeItem("session"); } catch {}
+    try { sessionStorage.removeItem("session"); sessionStorage.removeItem("currentUnit"); } catch {}
     window.location.href = "login.html";
   });
 

@@ -45,6 +45,8 @@ document.getElementById("cfgLink").href = `admin.html#modules`;
 
 (async () => {
   schema = await loadSchema();
+  const unit = getCurrentUnit();
+  if (!unit) { window.location.href = "select-unit.html"; return; }
   if (!mod) {
     document.getElementById("content").innerHTML = `<p class="text-sm text-zinc-500">Module introuvable.</p>`;
     return;
@@ -52,7 +54,7 @@ document.getElementById("cfgLink").href = `admin.html#modules`;
   document.getElementById("modTitle").textContent = mod.label;
   const cfg = schema.moduleConfigs[mod.id];
   const table = cfg?.tableId ? schema.tables[cfg.tableId] : null;
-  document.getElementById("modSub").textContent = table ? `Source : ${table.name}` : "Non configuré";
+  document.getElementById("modSub").textContent = (table ? `Source : ${table.name}` : "Non configuré") + ` · Unité ${unit}`;
 
   const content = document.getElementById("content");
   if (!cfg || !cfg.tableId || !table) {
@@ -89,7 +91,13 @@ function renderTable(table, cfg) {
     return;
   }
 
-  const baseRows = applyFilters(table.rows, cfg.filters, table.columns);
+  // Filtre implicite par unité courante
+  const unit = getCurrentUnit();
+  let preRows = table.rows;
+  if (cfg.unitColumn && unit) {
+    preRows = preRows.filter((r) => String(r[cfg.unitColumn] ?? "") === String(unit));
+  }
+  const baseRows = applyFilters(preRows, cfg.filters, table.columns);
 
   const selectorDefs = (cfg.selectors || []).map((s) => ({ ...s, col: table.columns.find((c) => c.id === s.column) })).filter((s) => s.col);
 
@@ -139,7 +147,7 @@ function renderTable(table, cfg) {
     </div>` : ""}
 
     <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
-      <table class="text-sm table-fixed" style="width:${allCols.length*180}px">
+      <table class="w-full text-sm table-fixed" style="min-width:${allCols.length*180}px">
         <colgroup>${allCols.map(() => `<col style="width:180px" />`).join("")}</colgroup>
         <thead class="sticky top-[57px] z-[5] bg-zinc-50 shadow-[0_1px_0_0_#e4e4e7]">
           <tr>${allCols.map((c) => `<th title="${escapeAttr(c.name)}" class="px-4 py-3 text-left font-semibold ${c.kind==='join'?'text-indigo-700':'text-zinc-700'}"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal ${c.kind==='join'?'text-indigo-400':'text-zinc-400'}">${c.kind==='join'?'lié · '+c.type:c.type}</span></th>`).join("")}</tr>
@@ -185,7 +193,7 @@ function renderTable(table, cfg) {
         return String(val ?? "").toLowerCase().includes(search);
       }));
     }
-    meta.textContent = `${filtered.length} ligne(s) · ${allCols.length} colonne(s)`;
+    meta.innerHTML = `<span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 font-medium text-indigo-700">${filtered.length}</span> / ${baseRows.length} ligne(s) après filtres · ${allCols.length} colonne(s)`;
 
     if (filtered.length === 0) {
       tb.innerHTML = `<tr><td colspan="${allCols.length}" class="px-4 py-6 text-center text-sm text-zinc-500">Aucune ligne.</td></tr>`;

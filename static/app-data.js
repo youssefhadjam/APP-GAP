@@ -41,7 +41,7 @@ const FILTER_OPS = [
 ];
 
 function defaultSchema() {
-  return { tables: {}, relations: [], moduleConfigs: {} };
+  return { tables: {}, relations: [], moduleConfigs: {}, units: [] };
 }
 
 async function loadSchema() {
@@ -63,10 +63,21 @@ async function loadSchema() {
       tables: parsed.tables || {},
       relations: parsed.relations || [],
       moduleConfigs: parsed.moduleConfigs || {},
+      units: parsed.units || [],
     };
   } catch {
     return defaultSchema();
   }
+}
+
+function getCurrentUnit() {
+  try { return sessionStorage.getItem("currentUnit") || ""; } catch { return ""; }
+}
+function setCurrentUnit(u) {
+  try {
+    if (u) sessionStorage.setItem("currentUnit", u);
+    else sessionStorage.removeItem("currentUnit");
+  } catch {}
 }
 
 let _saveQueue = Promise.resolve();
