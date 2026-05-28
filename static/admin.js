@@ -143,9 +143,13 @@ function renderTableEditor() {
         </div>
       </div>
       <div class="overflow-x-auto rounded-lg border border-zinc-200">
-        <table class="min-w-full text-sm"><thead class="bg-zinc-50">
-          <tr>${t.columns.map((c) => `<th class="px-3 py-2 text-left font-medium text-zinc-700">${escapeHtml(c.name)}<span class="ml-1 text-xs text-zinc-400">${c.type}</span></th>`).join("")}<th class="w-10"></th></tr>
-        </thead><tbody id="rowsBody"></tbody></table>
+        <table class="text-sm table-fixed" style="width:${t.columns.length*180+40}px">
+          <colgroup>${t.columns.map(() => `<col style="width:180px" />`).join("")}<col style="width:40px" /></colgroup>
+          <thead class="bg-zinc-50">
+            <tr>${t.columns.map((c) => `<th title="${escapeAttr(c.name)}" class="px-3 py-2 text-left font-medium text-zinc-700 truncate"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal text-zinc-400">${c.type}</span></th>`).join("")}<th></th></tr>
+          </thead>
+          <tbody id="rowsBody"></tbody>
+        </table>
       </div>
       <div id="rowsPager" class="mt-3 flex items-center justify-between text-xs text-zinc-600"></div>
     </div>
@@ -242,8 +246,8 @@ function renderRowsBody(t) {
 
   tb.innerHTML = pageRows.map((row) => `
     <tr class="border-t border-zinc-100">
-      ${t.columns.map((c) => `<td class="px-3 py-1"><input data-row="${row._id}" data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" value="${escapeAttr(row[c.id] ?? "")}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 text-sm hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none" /></td>`).join("")}
-      <td class="px-2"><button data-delrow="${row._id}" class="text-red-500 hover:text-red-700">✕</button></td>
+      ${t.columns.map((c) => `<td class="px-3 py-1 overflow-hidden"><input title="${escapeAttr(row[c.id] ?? "")}" data-row="${row._id}" data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" value="${escapeAttr(row[c.id] ?? "")}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 text-sm hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none" /></td>`).join("")}
+      <td class="px-2 text-center"><button data-delrow="${row._id}" class="text-red-500 hover:text-red-700">✕</button></td>
     </tr>
   `).join("");
   tb.querySelectorAll("input").forEach((el) => el.addEventListener("change", () => {

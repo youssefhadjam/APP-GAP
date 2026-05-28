@@ -93,9 +93,10 @@ function renderTable(table, cfg) {
       </div>
     </div>
     <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
-      <table class="min-w-full text-sm">
+      <table class="text-sm table-fixed" style="width:${visibleCols.length*180}px">
+        <colgroup>${visibleCols.map(() => `<col style="width:180px" />`).join("")}</colgroup>
         <thead class="bg-zinc-50">
-          <tr>${visibleCols.map((c) => `<th class="px-4 py-3 text-left font-semibold text-zinc-700">${escapeHtml(c.name)}<span class="ml-1 text-xs font-normal text-zinc-400">${c.type}</span></th>`).join("")}</tr>
+          <tr>${visibleCols.map((c) => `<th title="${escapeAttr(c.name)}" class="px-4 py-3 text-left font-semibold text-zinc-700"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal text-zinc-400">${c.type}</span></th>`).join("")}</tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -136,9 +137,9 @@ function renderTable(table, cfg) {
           const editable = cfg.editableColumns.includes(c.id);
           const val = row[c.id] ?? "";
           if (editable) {
-            return `<td class="px-3 py-1"><input data-row="${row._id}" data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" value="${escapeAttr(val)}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none" /></td>`;
+            return `<td class="px-3 py-1 overflow-hidden"><input title="${escapeAttr(val)}" data-row="${row._id}" data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" value="${escapeAttr(val)}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none" /></td>`;
           }
-          return `<td class="px-4 py-2 text-zinc-800">${escapeHtml(val)}</td>`;
+          return `<td title="${escapeAttr(val)}" class="px-4 py-2 text-zinc-800 truncate">${escapeHtml(val)}</td>`;
         }).join("")}
       </tr>
     `).join("");
