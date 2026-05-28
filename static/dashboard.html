@@ -91,38 +91,39 @@
 
   const groups = [
     { title: "Analyse & préparation", modules: [
-      { label: "Inspecteur analyse", icon: "search" },
-      { label: "Optimisation des points", icon: "target" },
+      { id: "inspecteur", label: "Inspecteur analyse", icon: "search" },
+      { id: "optimisation", label: "Optimisation des points", icon: "target" },
     ]},
     { title: "Échafaudage & isolant — dépose", flow: true, modules: [
-      { label: "Pose échafaudage", icon: "scaffold" },
-      { label: "Réception échafaudage", icon: "check" },
-      { label: "Dépose isolant", icon: "remove" },
+      { id: "pose-echaf", label: "Pose échafaudage", icon: "scaffold" },
+      { id: "reception-echaf", label: "Réception échafaudage", icon: "check" },
+      { id: "depose-isolant", label: "Dépose isolant", icon: "remove" },
     ]},
     { title: "Contrôle & interprétation", flow: true, modules: [
-      { label: "Contrôle END", icon: "wave" },
-      { label: "Interprétation", icon: "brain" },
-      { label: "Validation SIR", icon: "shield" },
+      { id: "controle-end", label: "Contrôle END", icon: "wave" },
+      { id: "interpretation", label: "Interprétation", icon: "brain" },
+      { id: "validation-sir", label: "Validation SIR", icon: "shield" },
     ]},
     { title: "Rapports & données", modules: [
-      { label: "Rapport ICND", icon: "report" },
-      { label: "MAJ valeurs points", icon: "refresh" },
+      { id: "rapport-icnd", label: "Rapport ICND", icon: "report" },
+      { id: "maj-valeurs", label: "MAJ valeurs points", icon: "refresh" },
     ]},
     { title: "Repose & clôture", flow: true, modules: [
-      { label: "Repose isolant", icon: "install" },
-      { label: "Validation repose isolant", icon: "validate" },
-      { label: "Dépose échaf", icon: "uninstall" },
+      { id: "repose-isolant", label: "Repose isolant", icon: "install" },
+      { id: "validation-repose", label: "Validation repose isolant", icon: "validate" },
+      { id: "depose-echaf", label: "Dépose échaf", icon: "uninstall" },
     ]},
   ];
 
   const adminModules = [
-    { label: "Admin", icon: "shieldUser" },
-    { label: "Gestion compte utilisateur", icon: "users" },
-    { label: "Incident / Modification BDD", icon: "db" },
+    { id: "admin-panel", label: "Admin", icon: "shieldUser", href: "admin.html" },
+    { id: "utilisateurs", label: "Gestion compte utilisateur", icon: "users" },
+    { id: "incidents", label: "Incident / Modification BDD", icon: "db", href: "admin.html" },
   ];
 
   function card(mod) {
-    return `<a href="#" class="group relative flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md">
+    const href = mod.href || `module.html?id=${encodeURIComponent(mod.id)}`;
+    return `<a href="${href}" class="group relative flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md">
       <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 transition group-hover:bg-indigo-100">${ICONS[mod.icon]}</span>
       <span class="text-sm font-medium text-zinc-800">${mod.label}</span>
     </a>`;

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>APP-GAP — Administration</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}</style>
+</head>
+<body class="min-h-screen bg-slate-50">
+
+<header class="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur">
+  <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+    <div class="flex items-center gap-3">
+      <a href="dashboard.html" class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 shadow-sm">
+        <span class="text-base font-bold text-white">G</span>
+      </a>
+      <div>
+        <p class="text-sm font-semibold text-zinc-900">Administration</p>
+        <p class="text-xs text-zinc-500">Bases de données · relations · modules</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="exportBtn" class="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Exporter</button>
+      <button id="importBtn" class="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Importer</button>
+      <input id="importFile" type="file" accept="application/json" class="hidden" />
+      <a href="dashboard.html" class="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Retour</a>
+    </div>
+  </div>
+  <div class="mx-auto max-w-7xl px-6">
+    <nav class="flex gap-1 -mb-px">
+      <button data-tab="tables" class="tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-zinc-600 hover:text-zinc-900">Tables</button>
+      <button data-tab="relations" class="tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-zinc-600 hover:text-zinc-900">Relations</button>
+      <button data-tab="modules" class="tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-zinc-600 hover:text-zinc-900">Modules</button>
+    </nav>
+  </div>
+</header>
+
+<main class="mx-auto max-w-7xl px-6 py-6">
+
+<!-- ===== TABLES ===== -->
+<section id="tab-tables" class="tab-panel hidden">
+  <div class="mb-4 flex items-center justify-between">
+    <div>
+      <h2 class="text-lg font-semibold text-zinc-900">Tables</h2>
+      <p class="text-sm text-zinc-500">Créez vos bases de données, leurs colonnes et leurs données.</p>
+    </div>
+    <button id="newTableBtn" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm">+ Nouvelle table</button>
+  </div>
+  <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
+    <aside class="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
+      <div id="tableList" class="space-y-1"></div>
+    </aside>
+    <div id="tableEditor" class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <p class="text-sm text-zinc-500">Sélectionnez ou créez une table.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== RELATIONS ===== -->
+<section id="tab-relations" class="tab-panel hidden">
+  <div class="mb-4 flex items-center justify-between">
+    <div>
+      <h2 class="text-lg font-semibold text-zinc-900">Relations</h2>
+      <p class="text-sm text-zinc-500">Liez les colonnes d'une table à celles d'une autre.</p>
+    </div>
+    <button id="newRelationBtn" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm">+ Nouvelle relation</button>
+  </div>
+  <div id="relationsList" class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"></div>
+</section>
+
+<!-- ===== MODULES ===== -->
+<section id="tab-modules" class="tab-panel hidden">
+  <div class="mb-4">
+    <h2 class="text-lg font-semibold text-zinc-900">Configuration des modules</h2>
+    <p class="text-sm text-zinc-500">Pour chaque bouton du tableau de bord : table source, colonnes visibles, colonnes éditables, filtres.</p>
+  </div>
+  <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
+    <aside class="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
+      <div id="moduleList" class="space-y-1"></div>
+    </aside>
+    <div id="moduleEditor" class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <p class="text-sm text-zinc-500">Sélectionnez un module.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ===== MODAL ===== -->
+<div id="modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 p-4">
+  <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+    <div class="mb-4 flex items-center justify-between">
+      <h3 id="modalTitle" class="text-base font-semibold text-zinc-900"></h3>
+      <button id="modalClose" class="text-zinc-400 hover:text-zinc-700">✕</button>
+    </div>
+    <div id="modalBody"></div>
+    <div id="modalFooter" class="mt-5 flex justify-end gap-2"></div>
+  </div>
+</div>
+
+<script src="app-data.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>
