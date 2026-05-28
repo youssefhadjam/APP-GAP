@@ -69,22 +69,28 @@ document.getElementById("cfgLink").href = `admin.html#modules`;
 function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])); }
 function escapeAttr(s) { return escapeHtml(s); }
 
+const PAGE_SIZE = 100;
+let page = 0;
+let search = "";
+
 function renderTable(table, cfg) {
   const visibleCols = cfg.visibleColumns.map((id) => table.columns.find((c) => c.id === id)).filter(Boolean);
   if (visibleCols.length === 0) {
     document.getElementById("content").innerHTML = `<p class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Aucune colonne visible. Sélectionnez-en dans <a class="font-medium underline" href="admin.html#modules">la configuration</a>.</p>`;
     return;
   }
-  const rows = applyFilters(table.rows, cfg.filters, table.columns);
 
   const content = document.getElementById("content");
   content.innerHTML = `
-    <div class="mb-4 flex items-center justify-between">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-zinc-900">${escapeHtml(mod.label)}</h1>
-        <p class="text-sm text-zinc-500">${rows.length} ligne(s) · ${visibleCols.length} colonne(s)</p>
+        <p id="metaLine" class="text-sm text-zinc-500"></p>
       </div>
-      <button id="addRow" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white">+ Nouvelle ligne</button>
+      <div class="flex items-center gap-2">
+        <input id="search" placeholder="Rechercher…" class="rounded-lg border border-zinc-300 px-3 py-2 text-sm" />
+        <button id="addRow" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white">+ Nouvelle ligne</button>
+      </div>
     </div>
     <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
       <table class="min-w-full text-sm">
@@ -94,16 +100,37 @@ function renderTable(table, cfg) {
         <tbody id="rows"></tbody>
       </table>
     </div>
+    <div id="pager" class="mt-3 flex items-center justify-between text-xs text-zinc-600"></div>
   `;
+
+  document.getElementById("search").addEventListener("input", (e) => {
+    search = e.target.value.toLowerCase();
+    page = 0;
+    paint();
+  });
 
   function paint() {
     const tb = document.getElementById("rows");
-    const filtered = applyFilters(table.rows, cfg.filters, table.columns);
+    const pager = document.getElementById("pager");
+    const meta = document.getElementById("metaLine");
+    let filtered = applyFilters(table.rows, cfg.filters, table.columns);
+    if (search) {
+      filtered = filtered.filter((row) => visibleCols.some((c) => String(row[c.id] ?? "").toLowerCase().includes(search)));
+    }
+    meta.textContent = `${filtered.length} ligne(s) · ${visibleCols.length} colonne(s)`;
+
     if (filtered.length === 0) {
       tb.innerHTML = `<tr><td colspan="${visibleCols.length}" class="px-4 py-6 text-center text-sm text-zinc-500">Aucune ligne.</td></tr>`;
+      pager.innerHTML = "";
       return;
     }
-    tb.innerHTML = filtered.map((row) => `
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (page >= totalPages) page = totalPages - 1;
+    const start = page * PAGE_SIZE;
+    const pageRows = filtered.slice(start, start + PAGE_SIZE);
+
+    tb.innerHTML = pageRows.map((row) => `
       <tr class="border-t border-zinc-100">
         ${visibleCols.map((c) => {
           const editable = cfg.editableColumns.includes(c.id);
@@ -119,6 +146,15 @@ function renderTable(table, cfg) {
       const r = table.rows.find((r) => r._id === el.dataset.row);
       if (r) { r[el.dataset.col] = el.value; saveSchema(schema); }
     }));
+
+    pager.innerHTML = `
+      <span>Page ${page+1} / ${totalPages} · lignes ${start+1}–${Math.min(start+PAGE_SIZE, filtered.length)}</span>
+      <div class="flex gap-2">
+        <button id="pgPrev" class="rounded border border-zinc-200 bg-white px-2 py-1 ${page===0?'opacity-40 cursor-not-allowed':''}">‹ Précédent</button>
+        <button id="pgNext" class="rounded border border-zinc-200 bg-white px-2 py-1 ${page>=totalPages-1?'opacity-40 cursor-not-allowed':''}">Suivant ›</button>
+      </div>`;
+    document.getElementById("pgPrev").onclick = () => { if (page>0){ page--; paint(); } };
+    document.getElementById("pgNext").onclick = () => { if (page<totalPages-1){ page++; paint(); } };
   }
   paint();
 
