@@ -145,7 +145,7 @@ function renderTableEditor() {
       <div class="overflow-x-auto rounded-lg border border-zinc-200">
         <table class="text-sm table-fixed" style="width:${t.columns.length*180+40}px">
           <colgroup>${t.columns.map(() => `<col style="width:180px" />`).join("")}<col style="width:40px" /></colgroup>
-          <thead class="bg-zinc-50">
+          <thead class="sticky top-[100px] z-[5] bg-zinc-50 shadow-[0_1px_0_0_#e4e4e7]">
             <tr>${t.columns.map((c) => `<th title="${escapeAttr(c.name)}" class="px-3 py-2 text-left font-medium text-zinc-700 truncate"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal text-zinc-400">${c.type}</span></th>`).join("")}<th></th></tr>
           </thead>
           <tbody id="rowsBody"></tbody>
@@ -546,7 +546,9 @@ function renderModuleEditor() {
   const ed = document.getElementById("moduleEditor");
   if (!currentModuleId) { ed.innerHTML = `<p class="text-sm text-zinc-500">Sélectionnez un module.</p>`; return; }
   const mod = MODULES.find((m) => m.id === currentModuleId);
-  const cfg = schema.moduleConfigs[currentModuleId] || { tableId: "", visibleColumns: [], editableColumns: [], filters: [] };
+  const cfg = schema.moduleConfigs[currentModuleId] || { tableId: "", visibleColumns: [], editableColumns: [], filters: [], selectors: [], joinedColumns: [] };
+  cfg.selectors = cfg.selectors || [];
+  cfg.joinedColumns = cfg.joinedColumns || [];
   schema.moduleConfigs[currentModuleId] = cfg;
 
   const tables = Object.values(schema.tables);
@@ -585,9 +587,27 @@ function renderModuleEditor() {
         </div>
       </div>
 
+      <div class="mb-5">
+        <div class="mb-2 flex items-center justify-between">
+          <h4 class="text-sm font-semibold text-zinc-900">Sélecteurs (filtres dynamiques)</h4>
+          <button id="addSelectorBtn" class="text-xs font-medium text-indigo-600 hover:text-indigo-700">+ Ajouter</button>
+        </div>
+        <p class="mb-2 text-xs text-zinc-500">Un dropdown apparaîtra dans le module pour filtrer les lignes par la valeur de cette colonne (ex. choisir un repère).</p>
+        <div id="selectorsList" class="space-y-2"></div>
+      </div>
+
+      <div class="mb-5">
+        <div class="mb-2 flex items-center justify-between">
+          <h4 class="text-sm font-semibold text-zinc-900">Colonnes liées (via relations)</h4>
+          <button id="addJoinBtn" class="text-xs font-medium text-indigo-600 hover:text-indigo-700">+ Ajouter</button>
+        </div>
+        <p class="mb-2 text-xs text-zinc-500">Affichez une colonne d'une autre table en croisant les données via une relation existante.</p>
+        <div id="joinsList" class="space-y-2"></div>
+      </div>
+
       <div class="mb-3">
         <div class="mb-2 flex items-center justify-between">
-          <h4 class="text-sm font-semibold text-zinc-900">Filtres (lignes affichées)</h4>
+          <h4 class="text-sm font-semibold text-zinc-900">Filtres fixes</h4>
           <button id="addFilterBtn" class="text-xs font-medium text-indigo-600 hover:text-indigo-700">+ Ajouter</button>
         </div>
         <div id="filtersList" class="space-y-2"></div>
@@ -628,8 +648,87 @@ function renderModuleEditor() {
       cfg.filters.push({ column: table.columns[0]?.id || "", op: "eq", value: "" });
       persist(); renderModuleEditor();
     });
+    document.getElementById("addSelectorBtn").addEventListener("click", () => {
+      cfg.selectors.push({ id: uid("sel"), column: table.columns[0]?.id || "" });
+      persist(); renderModuleEditor();
+    });
+    document.getElementById("addJoinBtn").addEventListener("click", () => {
+      const rels = relationsForTable(table.id, schema);
+      if (rels.length === 0) { alert("Aucune relation impliquant cette table. Créez-en une dans l'onglet Relations."); return; }
+      const firstRel = rels[0];
+      const other = otherSideOfRelation(firstRel, table.id, schema);
+      cfg.joinedColumns.push({ id: uid("jcol"), viaRelation: firstRel.id, column: other.table?.columns[0]?.id || "" });
+      persist(); renderModuleEditor();
+    });
     renderFiltersList(table, cfg);
+    renderSelectorsList(table, cfg);
+    renderJoinsList(table, cfg);
   }
+}
+
+function renderSelectorsList(table, cfg) {
+  const c = document.getElementById("selectorsList");
+  if (!c) return;
+  if (cfg.selectors.length === 0) { c.innerHTML = `<p class="text-xs text-zinc-500">Aucun sélecteur.</p>`; return; }
+  c.innerHTML = cfg.selectors.map((s, i) => `
+    <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <span class="text-xs text-zinc-500">Filtrer par</span>
+      <select data-sel="${i}" class="flex-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        ${table.columns.map((col) => `<option value="${col.id}" ${s.column===col.id?'selected':''}>${escapeHtml(col.name)}</option>`).join("")}
+      </select>
+      <button data-delsel="${i}" class="text-red-500 hover:text-red-700">✕</button>
+    </div>
+  `).join("");
+  c.querySelectorAll("[data-sel]").forEach((el) => el.addEventListener("change", () => {
+    cfg.selectors[+el.dataset.sel].column = el.value; persist();
+  }));
+  c.querySelectorAll("[data-delsel]").forEach((b) => b.addEventListener("click", () => {
+    cfg.selectors.splice(+b.dataset.delsel, 1); persist(); renderSelectorsList(table, cfg);
+  }));
+}
+
+function renderJoinsList(table, cfg) {
+  const c = document.getElementById("joinsList");
+  if (!c) return;
+  const rels = relationsForTable(table.id, schema);
+  if (cfg.joinedColumns.length === 0) {
+    c.innerHTML = `<p class="text-xs text-zinc-500">${rels.length === 0 ? "Aucune relation disponible pour cette table." : "Aucune colonne liée."}</p>`;
+    return;
+  }
+  c.innerHTML = cfg.joinedColumns.map((jc, i) => {
+    const rel = schema.relations.find((r) => r.id === jc.viaRelation);
+    const other = rel ? otherSideOfRelation(rel, table.id, schema) : { table: null };
+    const otherTable = other.table;
+    return `
+      <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+        <span class="text-xs text-zinc-500">Via</span>
+        <select data-jrel="${i}" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+          ${rels.map((r) => {
+            const o = otherSideOfRelation(r, table.id, schema);
+            return `<option value="${r.id}" ${jc.viaRelation===r.id?'selected':''}>→ ${escapeHtml(o.table?.name || "?")}</option>`;
+          }).join("")}
+        </select>
+        <span class="text-xs text-zinc-500">afficher</span>
+        <select data-jcol="${i}" class="flex-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+          ${(otherTable?.columns || []).map((col) => `<option value="${col.id}" ${jc.column===col.id?'selected':''}>${escapeHtml(col.name)}</option>`).join("")}
+        </select>
+        <button data-deljoin="${i}" class="text-red-500 hover:text-red-700">✕</button>
+      </div>`;
+  }).join("");
+  c.querySelectorAll("[data-jrel]").forEach((el) => el.addEventListener("change", () => {
+    const i = +el.dataset.jrel;
+    cfg.joinedColumns[i].viaRelation = el.value;
+    const rel = schema.relations.find((r) => r.id === el.value);
+    const other = otherSideOfRelation(rel, table.id, schema);
+    cfg.joinedColumns[i].column = other.table?.columns[0]?.id || "";
+    persist(); renderJoinsList(table, cfg);
+  }));
+  c.querySelectorAll("[data-jcol]").forEach((el) => el.addEventListener("change", () => {
+    cfg.joinedColumns[+el.dataset.jcol].column = el.value; persist();
+  }));
+  c.querySelectorAll("[data-deljoin]").forEach((b) => b.addEventListener("click", () => {
+    cfg.joinedColumns.splice(+b.dataset.deljoin, 1); persist(); renderJoinsList(table, cfg);
+  }));
 }
 
 function renderFiltersList(table, cfg) {

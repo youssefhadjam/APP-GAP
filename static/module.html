@@ -72,13 +72,29 @@ function escapeAttr(s) { return escapeHtml(s); }
 const PAGE_SIZE = 100;
 let page = 0;
 let search = "";
+const selectorValues = {};
 
 function renderTable(table, cfg) {
-  const visibleCols = cfg.visibleColumns.map((id) => table.columns.find((c) => c.id === id)).filter(Boolean);
-  if (visibleCols.length === 0) {
+  const ownCols = cfg.visibleColumns.map((id) => table.columns.find((c) => c.id === id)).filter(Boolean).map((c) => ({ kind: "own", id: c.id, name: c.name, type: c.type, ref: c }));
+  const joinCols = (cfg.joinedColumns || []).map((jc) => {
+    const rel = schema.relations.find((r) => r.id === jc.viaRelation);
+    const other = rel ? otherSideOfRelation(rel, table.id, schema) : { table: null };
+    const col = other.table?.columns.find((c) => c.id === jc.column);
+    return { kind: "join", id: jc.id, name: col ? `${other.table.name}.${col.name}` : "?", type: col?.type || "texte", jc };
+  });
+  const allCols = [...ownCols, ...joinCols];
+
+  if (allCols.length === 0) {
     document.getElementById("content").innerHTML = `<p class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Aucune colonne visible. Sélectionnez-en dans <a class="font-medium underline" href="admin.html#modules">la configuration</a>.</p>`;
     return;
   }
+
+  const selectors = (cfg.selectors || []).map((s) => {
+    const col = table.columns.find((c) => c.id === s.column);
+    if (!col) return null;
+    const distinct = [...new Set(table.rows.map((r) => r[col.id]).filter((v) => v !== undefined && v !== null && v !== ""))].sort((a, b) => String(a).localeCompare(String(b), "fr", { numeric: true }));
+    return { id: s.id, col, distinct };
+  }).filter(Boolean);
 
   const content = document.getElementById("content");
   content.innerHTML = `
@@ -92,11 +108,27 @@ function renderTable(table, cfg) {
         <button id="addRow" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white">+ Nouvelle ligne</button>
       </div>
     </div>
+
+    ${selectors.length > 0 ? `
+    <div class="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+      <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Filtres</span>
+      ${selectors.map((s) => `
+        <label class="flex items-center gap-2 text-sm">
+          <span class="text-zinc-600">${escapeHtml(s.col.name)} :</span>
+          <select data-selid="${s.id}" class="rounded border border-zinc-300 bg-white px-2 py-1 text-sm">
+            <option value="">— tous —</option>
+            ${s.distinct.map((v) => `<option value="${escapeAttr(v)}" ${selectorValues[s.id]===String(v)?'selected':''}>${escapeHtml(v)}</option>`).join("")}
+          </select>
+        </label>
+      `).join("")}
+      ${Object.keys(selectorValues).length > 0 ? `<button id="resetSelectors" class="ml-auto text-xs font-medium text-indigo-600 hover:text-indigo-700">Réinitialiser</button>` : ""}
+    </div>` : ""}
+
     <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
-      <table class="text-sm table-fixed" style="width:${visibleCols.length*180}px">
-        <colgroup>${visibleCols.map(() => `<col style="width:180px" />`).join("")}</colgroup>
-        <thead class="bg-zinc-50">
-          <tr>${visibleCols.map((c) => `<th title="${escapeAttr(c.name)}" class="px-4 py-3 text-left font-semibold text-zinc-700"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal text-zinc-400">${c.type}</span></th>`).join("")}</tr>
+      <table class="text-sm table-fixed" style="width:${allCols.length*180}px">
+        <colgroup>${allCols.map(() => `<col style="width:180px" />`).join("")}</colgroup>
+        <thead class="sticky top-[57px] z-[5] bg-zinc-50 shadow-[0_1px_0_0_#e4e4e7]">
+          <tr>${allCols.map((c) => `<th title="${escapeAttr(c.name)}" class="px-4 py-3 text-left font-semibold ${c.kind==='join'?'text-indigo-700':'text-zinc-700'}"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal ${c.kind==='join'?'text-indigo-400':'text-zinc-400'}">${c.kind==='join'?'lié · '+c.type:c.type}</span></th>`).join("")}</tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -109,19 +141,40 @@ function renderTable(table, cfg) {
     page = 0;
     paint();
   });
+  content.querySelectorAll("[data-selid]").forEach((el) => el.addEventListener("change", () => {
+    const v = el.value;
+    if (v === "") delete selectorValues[el.dataset.selid];
+    else selectorValues[el.dataset.selid] = v;
+    page = 0; renderTable(table, cfg);
+  }));
+  const reset = document.getElementById("resetSelectors");
+  if (reset) reset.addEventListener("click", () => {
+    for (const k in selectorValues) delete selectorValues[k];
+    renderTable(table, cfg);
+  });
 
   function paint() {
     const tb = document.getElementById("rows");
     const pager = document.getElementById("pager");
     const meta = document.getElementById("metaLine");
     let filtered = applyFilters(table.rows, cfg.filters, table.columns);
-    if (search) {
-      filtered = filtered.filter((row) => visibleCols.some((c) => String(row[c.id] ?? "").toLowerCase().includes(search)));
+    // Sélecteurs dynamiques
+    for (const s of selectors) {
+      const want = selectorValues[s.id];
+      if (want !== undefined && want !== "") {
+        filtered = filtered.filter((row) => String(row[s.col.id] ?? "") === String(want));
+      }
     }
-    meta.textContent = `${filtered.length} ligne(s) · ${visibleCols.length} colonne(s)`;
+    if (search) {
+      filtered = filtered.filter((row) => allCols.some((c) => {
+        const val = c.kind === "own" ? row[c.id] : getJoinedValue(row, table, c.jc, schema);
+        return String(val ?? "").toLowerCase().includes(search);
+      }));
+    }
+    meta.textContent = `${filtered.length} ligne(s) · ${allCols.length} colonne(s)`;
 
     if (filtered.length === 0) {
-      tb.innerHTML = `<tr><td colspan="${visibleCols.length}" class="px-4 py-6 text-center text-sm text-zinc-500">Aucune ligne.</td></tr>`;
+      tb.innerHTML = `<tr><td colspan="${allCols.length}" class="px-4 py-6 text-center text-sm text-zinc-500">Aucune ligne.</td></tr>`;
       pager.innerHTML = "";
       return;
     }
@@ -133,7 +186,11 @@ function renderTable(table, cfg) {
 
     tb.innerHTML = pageRows.map((row) => `
       <tr class="border-t border-zinc-100">
-        ${visibleCols.map((c) => {
+        ${allCols.map((c) => {
+          if (c.kind === "join") {
+            const val = getJoinedValue(row, table, c.jc, schema);
+            return `<td title="${escapeAttr(val)}" class="px-4 py-2 text-indigo-700 truncate bg-indigo-50/30">${escapeHtml(val)}</td>`;
+          }
           const editable = cfg.editableColumns.includes(c.id);
           const val = row[c.id] ?? "";
           if (editable) {

@@ -88,6 +88,36 @@ function uid(prefix) {
   );
 }
 
+// Cherche, pour une ligne donnée de `table`, la valeur d'une colonne d'une table liée via une relation.
+// joined = { viaRelation, column }
+function getJoinedValue(row, table, joined, schema) {
+  const rel = schema.relations.find((r) => r.id === joined.viaRelation);
+  if (!rel) return "";
+  let myCol, otherTable, otherCol;
+  if (rel.fromTable === table.id) {
+    myCol = rel.fromColumn; otherTable = schema.tables[rel.toTable]; otherCol = rel.toColumn;
+  } else if (rel.toTable === table.id) {
+    myCol = rel.toColumn; otherTable = schema.tables[rel.fromTable]; otherCol = rel.fromColumn;
+  } else return "";
+  if (!otherTable) return "";
+  const v = row[myCol];
+  if (v === undefined || v === null || v === "") return "";
+  const match = otherTable.rows.find((r) => String(r[otherCol] ?? "") === String(v));
+  return match ? (match[joined.column] ?? "") : "";
+}
+
+// Liste les relations impliquant une table (utile pour proposer des joins).
+function relationsForTable(tableId, schema) {
+  return schema.relations.filter((r) => r.fromTable === tableId || r.toTable === tableId);
+}
+
+// Renvoie la "table cible" d'une relation depuis le point de vue de tableId.
+function otherSideOfRelation(rel, tableId, schema) {
+  if (rel.fromTable === tableId) return { table: schema.tables[rel.toTable], col: rel.toColumn };
+  if (rel.toTable === tableId) return { table: schema.tables[rel.fromTable], col: rel.fromColumn };
+  return { table: null, col: null };
+}
+
 function applyFilters(rows, filters, columns) {
   if (!filters || filters.length === 0) return rows;
   return rows.filter((row) =>
