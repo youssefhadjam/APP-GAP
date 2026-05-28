@@ -91,11 +91,17 @@ function renderTable(table, cfg) {
     return;
   }
 
-  // Filtre implicite par unité courante
+  // Filtre implicite par unité courante (auto-détection si non configuré)
   const unit = getCurrentUnit();
+  let unitColId = cfg.unitColumn;
+  if (!unitColId && unit) {
+    const auto = table.columns.find((c) => /^(unit[ée]|u|unit)$/i.test(c.name.trim()));
+    if (auto) unitColId = auto.id;
+  }
   let preRows = table.rows;
-  if (cfg.unitColumn && unit) {
-    preRows = preRows.filter((r) => String(r[cfg.unitColumn] ?? "") === String(unit));
+  if (unitColId && unit) {
+    const target = String(unit).trim().toLowerCase();
+    preRows = preRows.filter((r) => String(r[unitColId] ?? "").trim().toLowerCase() === target);
   }
   const baseRows = applyFilters(preRows, cfg.filters, table.columns);
 
@@ -193,7 +199,30 @@ function renderTable(table, cfg) {
         return String(val ?? "").toLowerCase().includes(search);
       }));
     }
-    meta.innerHTML = `<span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 font-medium text-indigo-700">${filtered.length}</span> / ${baseRows.length} ligne(s) après filtres · ${allCols.length} colonne(s)`;
+    // Compte de lignes distinctes (sur l'ensemble des colonnes visibles)
+    const seen = new Set();
+    let distinctCount = 0;
+    for (const row of filtered) {
+      const key = allCols.map((c) => {
+        if (c.kind === "join") return String(getJoinedValue(row, table, c.jc, schema) ?? "");
+        return String(row[c.id] ?? "");
+      }).join("");
+      if (!seen.has(key)) { seen.add(key); distinctCount++; }
+    }
+
+    // Compte de valeurs distinctes par sélecteur
+    const selectorStats = selectors.map((s) => {
+      const set = new Set();
+      for (const r of filtered) {
+        const v = r[s.col.id];
+        if (v !== undefined && v !== null && v !== "") set.add(String(v));
+      }
+      return { name: s.col.name, count: set.size };
+    });
+
+    const dupNote = filtered.length !== distinctCount ? ` · <span class="text-emerald-700 font-medium">${distinctCount}</span> sans doublon` : "";
+    const selStats = selectorStats.map((s) => `<span class="text-zinc-700"><span class="font-medium">${s.count}</span> ${escapeHtml(s.name)} distinct(s)</span>`).join(" · ");
+    meta.innerHTML = `<span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 font-medium text-indigo-700">${filtered.length}</span> / ${baseRows.length} ligne(s)${dupNote}${selStats ? " · " + selStats : ""}`;
 
     if (filtered.length === 0) {
       tb.innerHTML = `<tr><td colspan="${allCols.length}" class="px-4 py-6 text-center text-sm text-zinc-500">Aucune ligne.</td></tr>`;
