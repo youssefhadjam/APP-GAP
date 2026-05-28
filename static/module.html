@@ -89,12 +89,26 @@ function renderTable(table, cfg) {
     return;
   }
 
-  const selectors = (cfg.selectors || []).map((s) => {
-    const col = table.columns.find((c) => c.id === s.column);
-    if (!col) return null;
-    const distinct = [...new Set(table.rows.map((r) => r[col.id]).filter((v) => v !== undefined && v !== null && v !== ""))].sort((a, b) => String(a).localeCompare(String(b), "fr", { numeric: true }));
-    return { id: s.id, col, distinct };
-  }).filter(Boolean);
+  const baseRows = applyFilters(table.rows, cfg.filters, table.columns);
+
+  const selectorDefs = (cfg.selectors || []).map((s) => ({ ...s, col: table.columns.find((c) => c.id === s.column) })).filter((s) => s.col);
+
+  const selectors = selectorDefs.map((s) => {
+    const others = selectorDefs.filter((o) => o.id !== s.id);
+    const scoped = baseRows.filter((r) => others.every((o) => {
+      const want = selectorValues[o.id];
+      return want === undefined || want === "" || String(r[o.col.id] ?? "") === String(want);
+    }));
+    const map = new Map();
+    for (const r of scoped) {
+      const v = r[s.col.id];
+      if (v === undefined || v === null || v === "") continue;
+      const k = String(v);
+      map.set(k, (map.get(k) || 0) + 1);
+    }
+    const distinct = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "fr", { numeric: true }));
+    return { id: s.id, col: s.col, distinct, totalCount: scoped.length };
+  });
 
   const content = document.getElementById("content");
   content.innerHTML = `
@@ -116,8 +130,8 @@ function renderTable(table, cfg) {
         <label class="flex items-center gap-2 text-sm">
           <span class="text-zinc-600">${escapeHtml(s.col.name)} :</span>
           <select data-selid="${s.id}" class="rounded border border-zinc-300 bg-white px-2 py-1 text-sm">
-            <option value="">— tous —</option>
-            ${s.distinct.map((v) => `<option value="${escapeAttr(v)}" ${selectorValues[s.id]===String(v)?'selected':''}>${escapeHtml(v)}</option>`).join("")}
+            <option value="">— tous (${s.totalCount}) —</option>
+            ${s.distinct.map(([v, count]) => `<option value="${escapeAttr(v)}" ${selectorValues[s.id]===v?'selected':''}>${escapeHtml(v)} (${count})</option>`).join("")}
           </select>
         </label>
       `).join("")}
