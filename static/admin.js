@@ -42,7 +42,7 @@ const modalFooter = document.getElementById("modalFooter");
 document.getElementById("modalClose").addEventListener("click", closeModal);
 modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
 
-function openModal(title, bodyHTML, actions) {
+function openModal(title, bodyHTML, actions, opts) {
   modalTitle.textContent = title;
   modalBody.innerHTML = bodyHTML;
   modalFooter.innerHTML = "";
@@ -55,6 +55,8 @@ function openModal(title, bodyHTML, actions) {
     b.onclick = a.onClick;
     modalFooter.appendChild(b);
   });
+  const card = document.getElementById("modalCard");
+  card.className = `w-full ${opts?.wide ? "max-w-4xl" : "max-w-lg"} rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto`;
   modal.classList.remove("hidden");
   modal.classList.add("flex");
 }
@@ -235,6 +237,146 @@ function openAddColumnModal(t) {
       persist(); closeModal(); renderTableEditor();
     }},
   ]);
+}
+
+// ===== Excel import =====
+document.getElementById("importExcelBtn").addEventListener("click", () => document.getElementById("excelFile").click());
+document.getElementById("excelFile").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const sheetName = wb.SheetNames[0];
+    if (!sheetName) { alert("Fichier vide."); e.target.value = ""; return; }
+    const sheet = wb.Sheets[sheetName];
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false, dateNF: "yyyy-mm-dd" });
+    if (aoa.length === 0) { alert("Feuille vide."); e.target.value = ""; return; }
+    const headers = (aoa[0] || []).map((h, i) => String(h ?? "").trim() || `colonne_${i+1}`);
+    const dataRows = aoa.slice(1).filter((r) => r.some((v) => v !== "" && v !== null && v !== undefined));
+    openExcelPreview(file.name.replace(/\.[^.]+$/, ""), wb.SheetNames, sheetName, headers, dataRows, buf);
+  } catch (err) {
+    alert("Erreur lecture du fichier : " + err.message);
+  }
+  e.target.value = "";
+});
+
+function detectType(values) {
+  const nonEmpty = values.filter((v) => v !== "" && v !== null && v !== undefined);
+  if (nonEmpty.length === 0) return "texte";
+  const allNum = nonEmpty.every((v) => v !== "" && !isNaN(Number(String(v).replace(",", "."))));
+  if (allNum) return "nombre";
+  const dateRe = /^\d{4}-\d{2}-\d{2}|^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/;
+  const allDate = nonEmpty.every((v) => dateRe.test(String(v)));
+  if (allDate) return "date";
+  const boolSet = new Set(["true","false","vrai","faux","oui","non","yes","no","1","0"]);
+  const allBool = nonEmpty.every((v) => boolSet.has(String(v).toLowerCase()));
+  if (allBool) return "booléen";
+  return "texte";
+}
+
+function openExcelPreview(suggestedName, sheetNames, currentSheet, headers, dataRows, buf) {
+  const typesGuess = headers.map((_, i) => detectType(dataRows.map((r) => r[i])));
+  const previewRows = dataRows.slice(0, 5);
+
+  const html = `
+    <div class="space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="mb-1 block text-xs font-medium text-zinc-600">Nom de la table</label>
+          <input id="imp_name" value="${escapeAttr(suggestedName)}" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-medium text-zinc-600">Feuille</label>
+          <select id="imp_sheet" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+            ${sheetNames.map((s) => `<option ${s===currentSheet?'selected':''}>${escapeHtml(s)}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <p class="mb-2 text-xs font-medium text-zinc-600">Colonnes détectées (${headers.length}) — ajustez si besoin</p>
+        <div class="space-y-2">
+          ${headers.map((h, i) => `
+            <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <input data-h="${i}" data-f="name" value="${escapeAttr(h)}" class="flex-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm" />
+              <select data-h="${i}" data-f="type" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+                ${COLUMN_TYPES.map((t) => `<option ${typesGuess[i]===t?'selected':''}>${t}</option>`).join("")}
+              </select>
+              <label class="flex items-center gap-1 text-xs text-zinc-600"><input data-h="${i}" data-f="skip" type="checkbox" /> Ignorer</label>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+
+      <div>
+        <p class="mb-2 text-xs font-medium text-zinc-600">Aperçu (${Math.min(5, dataRows.length)}/${dataRows.length} lignes)</p>
+        <div class="overflow-x-auto rounded-lg border border-zinc-200">
+          <table class="min-w-full text-xs">
+            <thead class="bg-zinc-50"><tr>${headers.map((h) => `<th class="px-2 py-1.5 text-left font-medium text-zinc-700">${escapeHtml(h)}</th>`).join("")}</tr></thead>
+            <tbody>${previewRows.map((r) => `<tr class="border-t border-zinc-100">${headers.map((_, i) => `<td class="px-2 py-1 text-zinc-700">${escapeHtml(r[i] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  openModal("Importer un fichier", html, [
+    { label: "Annuler", onClick: closeModal },
+    { label: `Importer ${dataRows.length} ligne(s)`, primary: true, onClick: () => {
+      const name = document.getElementById("imp_name").value.trim() || "import";
+      const cols = headers.map((h, i) => {
+        const nameEl = modalBody.querySelector(`[data-h="${i}"][data-f="name"]`);
+        const typeEl = modalBody.querySelector(`[data-h="${i}"][data-f="type"]`);
+        const skipEl = modalBody.querySelector(`[data-h="${i}"][data-f="skip"]`);
+        return {
+          idx: i, name: nameEl.value.trim() || `colonne_${i+1}`,
+          type: typeEl.value, skip: skipEl.checked,
+        };
+      });
+      const kept = cols.filter((c) => !c.skip);
+      const tableId = uid("tbl");
+      const tableCols = kept.map((c) => ({ id: uid("col"), name: c.name, type: c.type, editable: true }));
+      const rows = dataRows.map((r) => {
+        const row = { _id: uid("row") };
+        kept.forEach((c, i) => { row[tableCols[i].id] = castValue(r[c.idx], c.type); });
+        return row;
+      });
+      schema.tables[tableId] = { id: tableId, name, columns: tableCols, rows };
+      currentTableId = tableId;
+      persist(); closeModal(); renderTablesTab();
+    }},
+  ], { wide: true });
+
+  // Changement de feuille → recharger
+  document.getElementById("imp_sheet").addEventListener("change", async (e) => {
+    const newSheet = e.target.value;
+    const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const sheet = wb.Sheets[newSheet];
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false, dateNF: "yyyy-mm-dd" });
+    const newHeaders = (aoa[0] || []).map((h, i) => String(h ?? "").trim() || `colonne_${i+1}`);
+    const newDataRows = aoa.slice(1).filter((r) => r.some((v) => v !== "" && v !== null && v !== undefined));
+    closeModal();
+    openExcelPreview(suggestedName, sheetNames, newSheet, newHeaders, newDataRows, buf);
+  });
+}
+
+function castValue(v, type) {
+  if (v === null || v === undefined || v === "") return "";
+  if (type === "nombre") {
+    const n = Number(String(v).replace(",", "."));
+    return isNaN(n) ? String(v) : n;
+  }
+  if (type === "date") {
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? String(v) : d.toISOString().slice(0, 10);
+  }
+  if (type === "booléen") {
+    const s = String(v).toLowerCase();
+    return ["true","vrai","oui","yes","1"].includes(s);
+  }
+  return String(v);
 }
 
 document.getElementById("newTableBtn").addEventListener("click", () => {
