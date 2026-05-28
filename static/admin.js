@@ -324,27 +324,38 @@ function openExcelPreview(suggestedName, sheetNames, currentSheet, headers, data
   openModal("Importer un fichier", html, [
     { label: "Annuler", onClick: closeModal },
     { label: `Importer ${dataRows.length} ligne(s)`, primary: true, onClick: () => {
-      const name = document.getElementById("imp_name").value.trim() || "import";
-      const cols = headers.map((h, i) => {
-        const nameEl = modalBody.querySelector(`[data-h="${i}"][data-f="name"]`);
-        const typeEl = modalBody.querySelector(`[data-h="${i}"][data-f="type"]`);
-        const skipEl = modalBody.querySelector(`[data-h="${i}"][data-f="skip"]`);
-        return {
-          idx: i, name: nameEl.value.trim() || `colonne_${i+1}`,
-          type: typeEl.value, skip: skipEl.checked,
-        };
-      });
-      const kept = cols.filter((c) => !c.skip);
-      const tableId = uid("tbl");
-      const tableCols = kept.map((c) => ({ id: uid("col"), name: c.name, type: c.type, editable: true }));
-      const rows = dataRows.map((r) => {
-        const row = { _id: uid("row") };
-        kept.forEach((c, i) => { row[tableCols[i].id] = castValue(r[c.idx], c.type); });
-        return row;
-      });
-      schema.tables[tableId] = { id: tableId, name, columns: tableCols, rows };
-      currentTableId = tableId;
-      persist(); closeModal(); renderTablesTab();
+      try {
+        const nameInput = document.getElementById("imp_name");
+        const name = (nameInput?.value || "").trim() || "import";
+        const cols = headers.map((h, i) => {
+          const nameEl = modalBody.querySelector('input[data-h="' + i + '"][data-f="name"]');
+          const typeEl = modalBody.querySelector('select[data-h="' + i + '"][data-f="type"]');
+          const skipEl = modalBody.querySelector('input[data-h="' + i + '"][data-f="skip"]');
+          return {
+            idx: i,
+            name: (nameEl?.value || h || ("colonne_" + (i+1))).trim() || ("colonne_" + (i+1)),
+            type: typeEl?.value || "texte",
+            skip: !!(skipEl && skipEl.checked),
+          };
+        });
+        const kept = cols.filter((c) => !c.skip);
+        if (kept.length === 0) { alert("Sélectionnez au moins une colonne."); return; }
+        const tableId = uid("tbl");
+        const tableCols = kept.map((c) => ({ id: uid("col"), name: c.name, type: c.type, editable: true }));
+        const rows = dataRows.map((r) => {
+          const row = { _id: uid("row") };
+          kept.forEach((c, i) => { row[tableCols[i].id] = castValue(r[c.idx], c.type); });
+          return row;
+        });
+        schema.tables[tableId] = { id: tableId, name, columns: tableCols, rows };
+        currentTableId = tableId;
+        persist();
+        closeModal();
+        activateTab("tables");
+      } catch (err) {
+        console.error(err);
+        alert("Erreur lors de l'import : " + (err && err.message ? err.message : err));
+      }
     }},
   ], { wide: true });
 
