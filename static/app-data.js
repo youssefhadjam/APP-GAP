@@ -57,48 +57,61 @@ function _normalize(parsed) {
 
 const CHUNK_ROWS = 3000;
 
-async function loadSchema() {
-  // 1) Supabase (source de vérité)
-  if (typeof sb !== "undefined") {
-    try {
-      const { data: rows, error } = await sb.from("app_state").select("key,data");
-      if (!error && rows && rows.length > 0) {
-        const mainRow = rows.find((r) => r.key === "main");
-        if (mainRow && mainRow.data) {
-          const norm = _normalize(mainRow.data);
-          // Charge les rows depuis les chunks
-          for (const t of Object.values(norm.tables)) {
-            t.rows = [];
-            const chunks = rows
-              .filter((r) => r.key.startsWith(`rows:${t.id}:`))
-              .map((r) => ({ idx: parseInt(r.key.split(":").pop(), 10), data: r.data }))
-              .sort((a, b) => a.idx - b.idx);
-            for (const c of chunks) {
-              if (c.data && Array.isArray(c.data.chunk)) t.rows.push(...c.data.chunk);
-            }
-          }
-          try { await idbKeyval.set(STORE_KEY, norm); } catch {}
-          return norm;
-        }
-      }
-      if (error) console.warn("Supabase load error", error);
-    } catch (e) {
-      console.warn("Supabase indisponible, fallback IDB", e);
+async function _fetchSchemaRemote() {
+  if (typeof sb === "undefined") return null;
+  const { data: rows, error } = await sb.from("app_state").select("key,data");
+  if (error || !rows || rows.length === 0) return null;
+  const mainRow = rows.find((r) => r.key === "main");
+  if (!mainRow || !mainRow.data) return null;
+  const norm = _normalize(mainRow.data);
+  for (const t of Object.values(norm.tables)) {
+    t.rows = [];
+    const chunks = rows
+      .filter((r) => r.key.startsWith(`rows:${t.id}:`))
+      .map((r) => ({ idx: parseInt(r.key.split(":").pop(), 10), data: r.data }))
+      .sort((a, b) => a.idx - b.idx);
+    for (const c of chunks) {
+      if (c.data && Array.isArray(c.data.chunk)) t.rows.push(...c.data.chunk);
     }
   }
-  // 2) Cache local IDB
-  let parsed = null;
-  try {
-    parsed = await idbKeyval.get(STORE_KEY);
-    if (!parsed) {
-      try {
-        const raw = localStorage.getItem(STORE_KEY);
-        if (raw) { parsed = JSON.parse(raw); localStorage.removeItem(STORE_KEY); }
-      } catch {}
-    }
-  } catch {}
-  const norm = _normalize(parsed);
   return norm;
+}
+
+async function loadSchema() {
+  // 1) Cache local immédiat
+  let local = null;
+  try { local = await idbKeyval.get(STORE_KEY); } catch {}
+  if (!local) {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) { local = JSON.parse(raw); localStorage.removeItem(STORE_KEY); }
+    } catch {}
+  }
+
+  if (local) {
+    // Refresh en arrière-plan (les changements distants seront visibles au prochain chargement)
+    _backgroundRefresh();
+    return _normalize(local);
+  }
+
+  // Pas de cache → fetch direct depuis Supabase
+  try {
+    const remote = await _fetchSchemaRemote();
+    if (remote) {
+      try { await idbKeyval.set(STORE_KEY, remote); } catch {}
+      return remote;
+    }
+  } catch (e) { console.warn("Supabase load failed", e); }
+
+  return defaultSchema();
+}
+
+function _backgroundRefresh() {
+  _fetchSchemaRemote().then((remote) => {
+    if (remote) {
+      idbKeyval.set(STORE_KEY, remote).catch(() => {});
+    }
+  }).catch(() => {});
 }
 
 function getCurrentUnit() {
