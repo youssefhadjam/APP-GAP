@@ -1,11 +1,4 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": null,
-  "installCommand": null,
-  "framework": null,
   "outputDirectory": "static",
-  "cleanUrls": true,
-  "rewrites": [
-    { "source": "/", "destination": "/login.html" }
-  ]
+  "cleanUrls": true
 }
