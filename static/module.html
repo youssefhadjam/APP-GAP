@@ -157,11 +157,19 @@ function openNewRowModal(table) {
   const wrap = document.createElement("div");
   wrap.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4";
   wrap.innerHTML = `
-    <div class="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+    <div class="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
       <div class="mb-4 flex items-center justify-between">
-        <h3 class="text-base font-semibold text-zinc-900">Nouvelle ligne — ${escapeHtml(table.name)}</h3>
+        <h3 class="text-base font-semibold text-zinc-900">Ajouter des points — ${escapeHtml(table.name)}</h3>
         <button id="closeModalBtn" class="text-zinc-400 hover:text-zinc-700">✕</button>
       </div>
+
+      <div class="mb-5 rounded-xl border-2 border-indigo-200 bg-indigo-50 p-4">
+        <label class="mb-1 block text-sm font-semibold text-indigo-900">Combien de points à ajouter ?</label>
+        <input id="m_count" type="number" min="1" value="1" class="w-32 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-base font-semibold text-zinc-900" />
+        <p class="mt-1 text-xs text-indigo-700">Les valeurs renseignées ci-dessous seront recopiées sur chaque point créé. Tu pourras les ajuster ensuite dans le tableau.</p>
+      </div>
+
+      <h4 class="mb-3 text-sm font-semibold text-zinc-700">Valeurs communes</h4>
       <div class="grid gap-3 sm:grid-cols-2">
         ${table.columns.map((c) => `
           <div>
@@ -172,7 +180,8 @@ function openNewRowModal(table) {
           </div>
         `).join("")}
       </div>
-      <div class="mt-5 flex justify-end gap-2">
+
+      <div class="mt-5 flex justify-end gap-2 border-t border-zinc-100 pt-4">
         <button id="cancelBtn" class="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Annuler</button>
         <button id="saveBtn" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white">Enregistrer</button>
       </div>
@@ -184,12 +193,22 @@ function openNewRowModal(table) {
   wrap.querySelector("#cancelBtn").onclick = close;
   wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
   wrap.querySelector("#saveBtn").onclick = () => {
-    const row = { _id: "row_" + Math.random().toString(36).slice(2,9) };
-    wrap.querySelectorAll("[data-col]").forEach((el) => { row[el.dataset.col] = el.value; });
-    table.rows.push(row);
+    const count = Math.max(1, parseInt(document.getElementById("m_count").value, 10) || 1);
+    const template = {};
+    wrap.querySelectorAll("[data-col]").forEach((el) => { template[el.dataset.col] = el.value; });
+    const summary = table.columns
+      .filter((c) => template[c.id])
+      .map((c) => `${c.name}: ${template[c.id]}`)
+      .join("\n");
+    if (!confirm(`Créer ${count} point(s) avec :\n\n${summary || "(aucune valeur)"}\n\nConfirmer ?`)) return;
+    for (let i = 0; i < count; i++) {
+      const row = { _id: "row_" + Math.random().toString(36).slice(2,9) };
+      table.columns.forEach((c) => { row[c.id] = template[c.id] || ""; });
+      table.rows.push(row);
+    }
     saveSchema(schema);
     close();
-    alert("Ligne ajoutée.");
+    alert(`${count} point(s) ajouté(s).`);
   };
 }
 
