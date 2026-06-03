@@ -165,7 +165,9 @@ function openNewRowModal(table) {
         ${table.columns.map((c) => `
           <div>
             <label class="mb-1 block text-xs font-medium text-zinc-600">${escapeHtml(c.name)} <span class="text-zinc-400">${c.type}</span></label>
-            <input data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" />
+            ${c.type === "liste"
+              ? `<select data-col="${c.id}" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"><option value="">—</option>${(c.options||[]).map((o) => `<option>${escapeHtml(o)}</option>`).join("")}</select>`
+              : `<input data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" />`}
           </div>
         `).join("")}
       </div>
@@ -360,13 +362,17 @@ function renderTable(table, cfg) {
           const editable = cfg.editableColumns.includes(c.id);
           const val = row[c.id] ?? "";
           if (editable) {
+            if (c.type === "liste") {
+              const opts = c.ref?.options || [];
+              return `<td class="px-3 py-1 overflow-hidden"><select data-row="${row._id}" data-col="${c.id}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none"><option value="">—</option>${opts.map((o) => `<option ${String(val)===o?'selected':''}>${escapeHtml(o)}</option>`).join("")}</select></td>`;
+            }
             return `<td class="px-3 py-1 overflow-hidden"><input title="${escapeAttr(val)}" data-row="${row._id}" data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" value="${escapeAttr(val)}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none" /></td>`;
           }
           return `<td title="${escapeAttr(val)}" class="px-4 py-2 text-zinc-800 truncate">${escapeHtml(val)}</td>`;
         }).join("")}
       </tr>
     `).join("");
-    tb.querySelectorAll("input").forEach((el) => el.addEventListener("change", () => {
+    tb.querySelectorAll("input,select").forEach((el) => el.addEventListener("change", () => {
       const r = table.rows.find((r) => r._id === el.dataset.row);
       if (r) { r[el.dataset.col] = el.value; saveSchema(schema); }
     }));

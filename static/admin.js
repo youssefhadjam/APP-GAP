@@ -166,6 +166,7 @@ function renderColsList(t) {
       <select data-col="${col.id}" data-field="type" class="rounded border border-zinc-200 bg-white px-1 py-1 text-xs">
         ${COLUMN_TYPES.map((tp) => `<option ${col.type===tp?'selected':''}>${tp}</option>`).join("")}
       </select>
+      ${col.type==='liste' ? `<button data-options="${col.id}" class="text-xs font-medium text-indigo-600 hover:text-indigo-700 whitespace-nowrap" title="Définir les options">${(col.options||[]).length} val.</button>` : ""}
       <input data-col="${col.id}" data-field="editable" type="checkbox" ${col.editable?'checked':''} title="Éditable" />
       <button data-del="${col.id}" class="text-red-500 hover:text-red-700 text-sm">✕</button>
     </div>
@@ -187,6 +188,26 @@ function renderColsList(t) {
     t.rows.forEach((r) => delete r[colId]);
     persist(); renderTableEditor();
   }));
+  c.querySelectorAll("[data-options]").forEach((b) => b.addEventListener("click", () => {
+    const col = t.columns.find((x) => x.id === b.dataset.options);
+    if (!col) return;
+    openOptionsModal(col, t);
+  }));
+}
+
+function openOptionsModal(col, t) {
+  const initial = (col.options || []).join("\n");
+  openModal(`Options pour "${col.name}"`, `
+    <p class="mb-2 text-xs text-zinc-500">Une valeur par ligne. Ces valeurs apparaîtront dans une liste déroulante lors de l'édition.</p>
+    <textarea id="m_options" rows="10" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm font-mono" placeholder="OK&#10;NOK&#10;À vérifier">${escapeHtml(initial)}</textarea>
+  `, [
+    { label: "Annuler", onClick: closeModal },
+    { label: "Enregistrer", primary: true, onClick: () => {
+      const raw = document.getElementById("m_options").value;
+      col.options = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+      persist(); closeModal(); renderColsList(t);
+    }},
+  ]);
 }
 
 function openAddColumnModal(t) {

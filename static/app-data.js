@@ -27,7 +27,7 @@ const MODULES = [
   { id: "incidents", label: "Incident / Modification BDD" },
 ];
 
-const COLUMN_TYPES = ["texte", "nombre", "date", "booléen"];
+const COLUMN_TYPES = ["texte", "nombre", "date", "booléen", "liste"];
 const FILTER_OPS = [
   { v: "eq", label: "égal à" },
   { v: "ne", label: "différent de" },
