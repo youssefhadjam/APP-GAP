@@ -563,12 +563,21 @@ function renderModuleEditor() {
       <p class="mt-1 text-xs text-zinc-500">Configurez la source de données et l'affichage de ce module.</p>
     </div>
 
-    <div class="mb-5">
-      <label class="mb-1 block text-xs font-medium text-zinc-600">Table source</label>
-      <select id="cfg_table" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
-        <option value="">— Aucune —</option>
-        ${tables.map((t) => `<option value="${t.id}" ${cfg.tableId===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join("")}
-      </select>
+    <div class="mb-5 grid gap-3 sm:grid-cols-2">
+      <div>
+        <label class="mb-1 block text-xs font-medium text-zinc-600">Table source</label>
+        <select id="cfg_table" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+          <option value="">— Aucune —</option>
+          ${tables.map((t) => `<option value="${t.id}" ${cfg.tableId===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium text-zinc-600">Mode d'affichage</label>
+        <select id="cfg_layout" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+          <option value="table" ${(!cfg.layout||cfg.layout==='table')?'selected':''}>Tableau direct</option>
+          <option value="form" ${cfg.layout==='form'?'selected':''}>Page d'accueil avec sélecteurs</option>
+        </select>
+      </div>
     </div>
 
     ${table ? `
@@ -640,6 +649,10 @@ function renderModuleEditor() {
     cfg.editableColumns = [];
     cfg.filters = [];
     persist(); renderModulesTab();
+  });
+  document.getElementById("cfg_layout").addEventListener("change", (e) => {
+    cfg.layout = e.target.value;
+    persist();
   });
 
   if (table) {
