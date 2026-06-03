@@ -145,8 +145,8 @@ function renderTableEditor() {
         </div>
       </div>
       <div class="overflow-x-auto rounded-lg border border-zinc-200">
-        <table class="w-full text-sm table-fixed" style="min-width:${t.columns.length*180+40}px">
-          <colgroup>${t.columns.map(() => `<col style="width:180px" />`).join("")}<col style="width:40px" /></colgroup>
+        <table class="w-full text-sm table-fixed">
+          <colgroup>${t.columns.map(() => `<col />`).join("")}<col style="width:40px" /></colgroup>
           <thead class="sticky top-[100px] z-[5] bg-zinc-50 shadow-[0_1px_0_0_#e4e4e7]">
             <tr>${t.columns.map((c) => `<th title="${escapeAttr(c.name)}" class="px-3 py-2 text-left font-medium text-zinc-700 truncate"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal text-zinc-400">${c.type}</span></th>`).join("")}<th></th></tr>
           </thead>

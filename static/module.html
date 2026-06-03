@@ -291,8 +291,8 @@ function renderTable(table, cfg) {
     </div>` : ""}
 
     <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
-      <table class="w-full text-sm table-fixed" style="min-width:${allCols.length*180}px">
-        <colgroup>${allCols.map(() => `<col style="width:180px" />`).join("")}</colgroup>
+      <table class="w-full text-sm table-fixed">
+        <colgroup>${allCols.map(() => `<col />`).join("")}</colgroup>
         <thead class="sticky top-[57px] z-[5] bg-zinc-50 shadow-[0_1px_0_0_#e4e4e7]">
           <tr>${allCols.map((c) => `<th title="${escapeAttr(c.name)}" class="px-4 py-3 text-left font-semibold ${c.kind==='join'?'text-indigo-700':'text-zinc-700'}"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal ${c.kind==='join'?'text-indigo-400':'text-zinc-400'}">${c.kind==='join'?'lié · '+c.type:c.type}</span></th>`).join("")}</tr>
         </thead>
