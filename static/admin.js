@@ -136,25 +136,7 @@ function renderTableEditor() {
       <div id="colsList" class="space-y-2"></div>
     </div>
 
-    <div>
-      <div class="mb-2 flex items-center justify-between">
-        <h4 class="text-sm font-semibold text-zinc-900">Données <span id="rowsCount" class="ml-1 text-xs font-normal text-zinc-500"></span></h4>
-        <div class="flex items-center gap-2">
-          <input id="rowsSearch" placeholder="Rechercher…" class="rounded border border-zinc-300 px-2 py-1 text-sm" />
-          <button id="addRowBtn" class="text-xs font-medium text-indigo-600 hover:text-indigo-700">+ Ajouter une ligne</button>
-        </div>
-      </div>
-      <div class="overflow-x-auto rounded-lg border border-zinc-200">
-        <table class="w-full text-sm table-fixed">
-          <colgroup>${t.columns.map(() => `<col />`).join("")}<col style="width:40px" /></colgroup>
-          <thead class="sticky top-[100px] z-[5] bg-zinc-50 shadow-[0_1px_0_0_#e4e4e7]">
-            <tr>${t.columns.map((c) => `<th title="${escapeAttr(c.name)}" class="px-3 py-2 text-left font-medium text-zinc-700 truncate"><div class="truncate">${escapeHtml(c.name)}</div><span class="text-xs font-normal text-zinc-400">${c.type}</span></th>`).join("")}<th></th></tr>
-          </thead>
-          <tbody id="rowsBody"></tbody>
-        </table>
-      </div>
-      <div id="rowsPager" class="mt-3 flex items-center justify-between text-xs text-zinc-600"></div>
-    </div>
+    <p class="text-xs text-zinc-500">${t.rows.length} ligne(s) enregistrée(s) dans cette table.</p>
   `;
 
   document.getElementById("tableName").addEventListener("change", (e) => {
@@ -170,26 +152,8 @@ function renderTableEditor() {
     persist(); renderTablesTab();
   });
   document.getElementById("addColBtn").addEventListener("click", () => openAddColumnModal(t));
-  document.getElementById("addRowBtn").addEventListener("click", () => {
-    const row = { _id: uid("row") };
-    t.columns.forEach((c) => (row[c.id] = ""));
-    t.rows.push(row); persist(); renderTableEditor();
-  });
-
   renderColsList(t);
-  rowsPage = 0;
-  rowsSearch = "";
-  document.getElementById("rowsSearch").addEventListener("input", (e) => {
-    rowsSearch = e.target.value.toLowerCase();
-    rowsPage = 0;
-    renderRowsBody(t);
-  });
-  renderRowsBody(t);
 }
-
-const ROWS_PAGE_SIZE = 100;
-let rowsPage = 0;
-let rowsSearch = "";
 
 function renderColsList(t) {
   const c = document.getElementById("colsList");
@@ -213,7 +177,7 @@ function renderColsList(t) {
       if (el.dataset.field === "editable") col.editable = el.checked;
       else if (el.dataset.field === "type") col.type = el.value;
       else col.name = el.value;
-      persist(); renderColsList(t); renderRowsBody(t);
+      persist(); renderColsList(t);
     });
   });
   c.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => {
@@ -223,56 +187,6 @@ function renderColsList(t) {
     t.rows.forEach((r) => delete r[colId]);
     persist(); renderTableEditor();
   }));
-}
-
-function renderRowsBody(t) {
-  const tb = document.getElementById("rowsBody");
-  const pager = document.getElementById("rowsPager");
-  const countEl = document.getElementById("rowsCount");
-
-  let filtered = t.rows;
-  if (rowsSearch) {
-    filtered = t.rows.filter((r) => t.columns.some((c) => String(r[c.id] ?? "").toLowerCase().includes(rowsSearch)));
-  }
-
-  if (countEl) countEl.textContent = `(${filtered.length}${rowsSearch ? ` filtrées sur ${t.rows.length}` : ""})`;
-
-  if (filtered.length === 0) {
-    tb.innerHTML = `<tr><td class="px-3 py-4 text-xs text-zinc-500" colspan="${t.columns.length+1}">Aucune ligne.</td></tr>`;
-    if (pager) pager.innerHTML = "";
-    return;
-  }
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PAGE_SIZE));
-  if (rowsPage >= totalPages) rowsPage = totalPages - 1;
-  const start = rowsPage * ROWS_PAGE_SIZE;
-  const pageRows = filtered.slice(start, start + ROWS_PAGE_SIZE);
-
-  tb.innerHTML = pageRows.map((row) => `
-    <tr class="border-t border-zinc-100">
-      ${t.columns.map((c) => `<td class="px-3 py-1 overflow-hidden"><input title="${escapeAttr(row[c.id] ?? "")}" data-row="${row._id}" data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" value="${escapeAttr(row[c.id] ?? "")}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 text-sm hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none" /></td>`).join("")}
-      <td class="px-2 text-center"><button data-delrow="${row._id}" class="text-red-500 hover:text-red-700">✕</button></td>
-    </tr>
-  `).join("");
-  tb.querySelectorAll("input").forEach((el) => el.addEventListener("change", () => {
-    const row = t.rows.find((r) => r._id === el.dataset.row);
-    if (row) { row[el.dataset.col] = el.value; persist(); }
-  }));
-  tb.querySelectorAll("[data-delrow]").forEach((b) => b.addEventListener("click", () => {
-    t.rows = t.rows.filter((r) => r._id !== b.dataset.delrow);
-    persist(); renderRowsBody(t); renderTablesTab();
-  }));
-
-  if (pager) {
-    pager.innerHTML = `
-      <span>Page ${rowsPage+1} / ${totalPages} · lignes ${start+1}–${Math.min(start+ROWS_PAGE_SIZE, filtered.length)}</span>
-      <div class="flex gap-2">
-        <button id="pgPrev" class="rounded border border-zinc-200 bg-white px-2 py-1 ${rowsPage===0?'opacity-40 cursor-not-allowed':''}">‹ Précédent</button>
-        <button id="pgNext" class="rounded border border-zinc-200 bg-white px-2 py-1 ${rowsPage>=totalPages-1?'opacity-40 cursor-not-allowed':''}">Suivant ›</button>
-      </div>`;
-    document.getElementById("pgPrev").onclick = () => { if (rowsPage>0){ rowsPage--; renderRowsBody(t); } };
-    document.getElementById("pgNext").onclick = () => { if (rowsPage<totalPages-1){ rowsPage++; renderRowsBody(t); } };
-  }
 }
 
 function openAddColumnModal(t) {
