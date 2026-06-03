@@ -41,7 +41,7 @@ const FILTER_OPS = [
 ];
 
 function defaultSchema() {
-  return { tables: {}, relations: [], moduleConfigs: {}, units: [], kpis: [] };
+  return { tables: {}, relations: [], moduleConfigs: {}, units: [], kpis: [], queries: [] };
 }
 
 function _normalize(parsed) {
@@ -52,6 +52,7 @@ function _normalize(parsed) {
     moduleConfigs: parsed.moduleConfigs || {},
     units: parsed.units || [],
     kpis: parsed.kpis || [],
+    queries: parsed.queries || [],
   };
 }
 

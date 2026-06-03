@@ -35,6 +35,7 @@ function activateTab(name) {
   if (name === "relations") renderRelationsTab();
   if (name === "modules") renderModulesTab();
   if (name === "kpis") renderKpisTab();
+  if (name === "queries") renderQueriesTab();
   if (name === "units") renderUnitsTab();
   location.hash = name;
 }
@@ -892,6 +893,320 @@ document.getElementById("newKpiBtn").addEventListener("click", () => {
   schema.kpis = schema.kpis || [];
   schema.kpis.push({ id, name: "Nouveau KPI", tableId: "", filters: [], color: "indigo" });
   currentKpiId = id; persist(); renderKpisTab();
+});
+
+// ============================================================
+// ============ QUERIES TAB (SQL builder style Access) ========
+// ============================================================
+let currentQueryId = null;
+
+function renderQueriesTab() {
+  schema.queries = schema.queries || [];
+  const list = document.getElementById("queryList");
+  if (schema.queries.length === 0) {
+    list.innerHTML = `<p class="px-2 py-4 text-sm text-zinc-500">Aucune requête.</p>`;
+  } else {
+    list.innerHTML = schema.queries.map((q) => `
+      <button data-id="${q.id}" class="queryItem w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-100 ${currentQueryId===q.id?'bg-indigo-50 text-indigo-700':'text-zinc-700'}">
+        <span class="truncate">${escapeHtml(q.name || "Sans nom")}</span>
+      </button>
+    `).join("");
+    list.querySelectorAll(".queryItem").forEach((el) => el.addEventListener("click", () => {
+      currentQueryId = el.dataset.id; renderQueriesTab();
+    }));
+  }
+  renderQueryEditor();
+}
+
+function renderQueryEditor() {
+  const ed = document.getElementById("queryEditor");
+  const q = currentQueryId ? schema.queries.find((x) => x.id === currentQueryId) : null;
+  if (!q) { ed.innerHTML = `<p class="text-sm text-zinc-500">Sélectionnez ou créez une requête.</p>`; return; }
+  q.tables = q.tables || [];
+  q.columns = q.columns || [];
+  q.joins = q.joins || [];
+  q.where = q.where || [];
+  q.orderBy = q.orderBy || [];
+
+  const allTables = Object.values(schema.tables);
+  const selectedTables = q.tables.map((id) => schema.tables[id]).filter(Boolean);
+
+  // Relations entre tables sélectionnées
+  const availableRels = schema.relations.filter((r) => q.tables.includes(r.fromTable) && q.tables.includes(r.toTable));
+
+  ed.innerHTML = `
+    <div class="mb-5 flex items-center justify-between gap-3">
+      <input id="qName" value="${escapeAttr(q.name)}" placeholder="Nom de la requête" class="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-base font-semibold text-zinc-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20" />
+      <button id="qDelete" class="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">Supprimer</button>
+    </div>
+
+    <div class="mb-5">
+      <h4 class="mb-2 text-sm font-semibold text-zinc-900">1. Tables impliquées</h4>
+      <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        ${allTables.map((t) => `
+          <label class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+            <input data-qt="${t.id}" type="checkbox" ${q.tables.includes(t.id)?'checked':''} />
+            <span class="truncate">${escapeHtml(t.name)}</span>
+          </label>
+        `).join("")}
+      </div>
+    </div>
+
+    ${selectedTables.length === 0 ? "" : `
+      <div class="mb-5">
+        <h4 class="mb-2 text-sm font-semibold text-zinc-900">2. Jointures détectées</h4>
+        ${availableRels.length === 0 ? `<p class="text-xs text-zinc-500">Aucune relation entre les tables choisies (les tables seront jointes en cross join).</p>` : `
+          <div class="space-y-2">
+            ${availableRels.map((r) => {
+              const ft = schema.tables[r.fromTable], tt = schema.tables[r.toTable];
+              const fc = ft?.columns.find((c) => c.id === r.fromColumn);
+              const tc = tt?.columns.find((c) => c.id === r.toColumn);
+              const checked = q.joins.some((j) => j.relId === r.id);
+              return `<label class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                <input data-qj="${r.id}" type="checkbox" ${checked?'checked':''} />
+                <span>${escapeHtml(ft?.name)}.<span class="text-zinc-500">${escapeHtml(fc?.name)}</span> <span class="text-indigo-500">→</span> ${escapeHtml(tt?.name)}.<span class="text-zinc-500">${escapeHtml(tc?.name)}</span></span>
+              </label>`;
+            }).join("")}
+          </div>
+        `}
+      </div>
+
+      <div class="mb-5">
+        <h4 class="mb-2 text-sm font-semibold text-zinc-900">3. Colonnes à afficher</h4>
+        ${selectedTables.map((t) => `
+          <details class="mb-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2" open>
+            <summary class="cursor-pointer text-sm font-medium text-zinc-700">${escapeHtml(t.name)}</summary>
+            <div class="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+              ${t.columns.map((c) => {
+                const checked = q.columns.some((qc) => qc.tableId === t.id && qc.colId === c.id);
+                return `<label class="flex items-center gap-2 text-xs text-zinc-700">
+                  <input data-qc="${t.id}|${c.id}" type="checkbox" ${checked?'checked':''} />
+                  <span class="truncate">${escapeHtml(c.name)}</span>
+                </label>`;
+              }).join("")}
+            </div>
+          </details>
+        `).join("")}
+      </div>
+
+      <div class="mb-5">
+        <div class="mb-2 flex items-center justify-between">
+          <h4 class="text-sm font-semibold text-zinc-900">4. Filtres (WHERE)</h4>
+          <button id="qAddWhere" class="text-xs font-medium text-indigo-600 hover:text-indigo-700">+ Ajouter</button>
+        </div>
+        <div id="qWhereList" class="space-y-2"></div>
+      </div>
+
+      <div class="mb-5">
+        <div class="mb-2 flex items-center justify-between">
+          <h4 class="text-sm font-semibold text-zinc-900">5. Tri (ORDER BY)</h4>
+          <button id="qAddOrder" class="text-xs font-medium text-indigo-600 hover:text-indigo-700">+ Ajouter</button>
+        </div>
+        <div id="qOrderList" class="space-y-2"></div>
+      </div>
+
+      <div>
+        <div class="mb-2 flex items-center justify-between">
+          <h4 class="text-sm font-semibold text-zinc-900">SQL généré (Access)</h4>
+          <button id="qCopySql" class="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800">Copier</button>
+        </div>
+        <textarea id="qSqlOut" readonly rows="8" class="w-full rounded-lg border border-zinc-300 bg-zinc-950 p-3 text-xs font-mono text-emerald-300"></textarea>
+      </div>
+    `}
+  `;
+
+  document.getElementById("qName").addEventListener("change", (e) => { q.name = e.target.value.trim() || q.name; persist(); renderQueriesTab(); });
+  document.getElementById("qDelete").addEventListener("click", () => {
+    if (!confirm(`Supprimer la requête "${q.name}" ?`)) return;
+    schema.queries = schema.queries.filter((x) => x.id !== q.id);
+    currentQueryId = null; persist(); renderQueriesTab();
+  });
+  ed.querySelectorAll("[data-qt]").forEach((el) => el.addEventListener("change", () => {
+    const id = el.dataset.qt;
+    if (el.checked) { if (!q.tables.includes(id)) q.tables.push(id); }
+    else {
+      q.tables = q.tables.filter((x) => x !== id);
+      q.columns = q.columns.filter((c) => c.tableId !== id);
+      q.where = q.where.filter((w) => w.tableId !== id);
+      q.orderBy = q.orderBy.filter((o) => o.tableId !== id);
+      q.joins = q.joins.filter((j) => {
+        const r = schema.relations.find((x) => x.id === j.relId);
+        return r && r.fromTable !== id && r.toTable !== id;
+      });
+    }
+    persist(); renderQueryEditor();
+  }));
+  if (selectedTables.length > 0) {
+    ed.querySelectorAll("[data-qj]").forEach((el) => el.addEventListener("change", () => {
+      const relId = el.dataset.qj;
+      if (el.checked) { if (!q.joins.some((j) => j.relId === relId)) q.joins.push({ relId }); }
+      else q.joins = q.joins.filter((j) => j.relId !== relId);
+      persist(); refreshSql(q);
+    }));
+    ed.querySelectorAll("[data-qc]").forEach((el) => el.addEventListener("change", () => {
+      const [tableId, colId] = el.dataset.qc.split("|");
+      if (el.checked) { if (!q.columns.some((c) => c.tableId === tableId && c.colId === colId)) q.columns.push({ tableId, colId }); }
+      else q.columns = q.columns.filter((c) => !(c.tableId === tableId && c.colId === colId));
+      persist(); refreshSql(q);
+    }));
+    document.getElementById("qAddWhere").addEventListener("click", () => {
+      const t = selectedTables[0];
+      q.where.push({ tableId: t.id, colId: t.columns[0]?.id || "", op: "eq", value: "" });
+      persist(); renderQueryEditor();
+    });
+    document.getElementById("qAddOrder").addEventListener("click", () => {
+      const t = selectedTables[0];
+      q.orderBy.push({ tableId: t.id, colId: t.columns[0]?.id || "", dir: "ASC" });
+      persist(); renderQueryEditor();
+    });
+    document.getElementById("qCopySql").addEventListener("click", () => {
+      const txt = document.getElementById("qSqlOut").value;
+      navigator.clipboard?.writeText(txt);
+      const b = document.getElementById("qCopySql");
+      const old = b.textContent; b.textContent = "Copié ✓";
+      setTimeout(() => { b.textContent = old; }, 1500);
+    });
+    renderWhereList(q);
+    renderOrderList(q);
+    refreshSql(q);
+  }
+}
+
+function renderWhereList(q) {
+  const c = document.getElementById("qWhereList");
+  if (q.where.length === 0) { c.innerHTML = `<p class="text-xs text-zinc-500">Aucun filtre.</p>`; return; }
+  const tablesOpt = q.tables.map((id) => schema.tables[id]).filter(Boolean);
+  c.innerHTML = q.where.map((w, i) => {
+    const t = schema.tables[w.tableId];
+    return `<div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <select data-wi="${i}" data-wf="tableId" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        ${tablesOpt.map((tt) => `<option value="${tt.id}" ${w.tableId===tt.id?'selected':''}>${escapeHtml(tt.name)}</option>`).join("")}
+      </select>
+      <select data-wi="${i}" data-wf="colId" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        ${(t?.columns || []).map((cc) => `<option value="${cc.id}" ${w.colId===cc.id?'selected':''}>${escapeHtml(cc.name)}</option>`).join("")}
+      </select>
+      <select data-wi="${i}" data-wf="op" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        ${FILTER_OPS.map((o) => `<option value="${o.v}" ${w.op===o.v?'selected':''}>${o.label}</option>`).join("")}
+      </select>
+      <input data-wi="${i}" data-wf="value" value="${escapeAttr(w.value||"")}" class="flex-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm" ${["empty","notempty"].includes(w.op)?'disabled':''} placeholder="valeur" />
+      <button data-delw="${i}" class="text-red-500 hover:text-red-700">✕</button>
+    </div>`;
+  }).join("");
+  c.querySelectorAll("[data-wf]").forEach((el) => el.addEventListener("change", () => {
+    const i = +el.dataset.wi; q.where[i][el.dataset.wf] = el.value;
+    if (el.dataset.wf === "tableId") q.where[i].colId = schema.tables[el.value]?.columns[0]?.id || "";
+    persist(); renderWhereList(q); refreshSql(q);
+  }));
+  c.querySelectorAll("[data-delw]").forEach((b) => b.addEventListener("click", () => {
+    q.where.splice(+b.dataset.delw, 1); persist(); renderWhereList(q); refreshSql(q);
+  }));
+}
+
+function renderOrderList(q) {
+  const c = document.getElementById("qOrderList");
+  if (q.orderBy.length === 0) { c.innerHTML = `<p class="text-xs text-zinc-500">Aucun tri.</p>`; return; }
+  const tablesOpt = q.tables.map((id) => schema.tables[id]).filter(Boolean);
+  c.innerHTML = q.orderBy.map((o, i) => {
+    const t = schema.tables[o.tableId];
+    return `<div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <select data-oi="${i}" data-of="tableId" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        ${tablesOpt.map((tt) => `<option value="${tt.id}" ${o.tableId===tt.id?'selected':''}>${escapeHtml(tt.name)}</option>`).join("")}
+      </select>
+      <select data-oi="${i}" data-of="colId" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        ${(t?.columns || []).map((cc) => `<option value="${cc.id}" ${o.colId===cc.id?'selected':''}>${escapeHtml(cc.name)}</option>`).join("")}
+      </select>
+      <select data-oi="${i}" data-of="dir" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        <option value="ASC" ${o.dir!=='DESC'?'selected':''}>croissant</option>
+        <option value="DESC" ${o.dir==='DESC'?'selected':''}>décroissant</option>
+      </select>
+      <button data-delo="${i}" class="text-red-500 hover:text-red-700">✕</button>
+    </div>`;
+  }).join("");
+  c.querySelectorAll("[data-of]").forEach((el) => el.addEventListener("change", () => {
+    const i = +el.dataset.oi; q.orderBy[i][el.dataset.of] = el.value;
+    if (el.dataset.of === "tableId") q.orderBy[i].colId = schema.tables[el.value]?.columns[0]?.id || "";
+    persist(); renderOrderList(q); refreshSql(q);
+  }));
+  c.querySelectorAll("[data-delo]").forEach((b) => b.addEventListener("click", () => {
+    q.orderBy.splice(+b.dataset.delo, 1); persist(); renderOrderList(q); refreshSql(q);
+  }));
+}
+
+function refreshSql(q) {
+  const el = document.getElementById("qSqlOut");
+  if (!el) return;
+  el.value = buildAccessSQL(q, schema);
+}
+
+function buildAccessSQL(q, schema) {
+  if (!q.tables || q.tables.length === 0) return "-- Sélectionnez au moins une table";
+  const qb = (s) => `[${String(s).replace(/]/g, "]]")}]`;
+  const fq = (tId, cId) => {
+    const t = schema.tables[tId]; const c = t?.columns.find((x) => x.id === cId);
+    return t && c ? `${qb(t.name)}.${qb(c.name)}` : null;
+  };
+
+  const cols = q.columns.map((c) => fq(c.tableId, c.colId)).filter(Boolean);
+  const select = cols.length === 0 ? "*" : cols.join(", ");
+
+  const first = schema.tables[q.tables[0]];
+  let from = qb(first.name);
+  const used = new Set([q.tables[0]]);
+  const joinsByRel = new Map(q.joins.map((j) => [j.relId, j]));
+
+  for (let i = 1; i < q.tables.length; i++) {
+    const tId = q.tables[i]; const t = schema.tables[tId];
+    if (!t) continue;
+    // chercher une relation qui rejoint t à une table déjà utilisée
+    const rel = schema.relations.find((r) => joinsByRel.has(r.id) && ((r.fromTable === tId && used.has(r.toTable)) || (r.toTable === tId && used.has(r.fromTable))));
+    if (rel) {
+      const ft = schema.tables[rel.fromTable], tt = schema.tables[rel.toTable];
+      const fc = ft.columns.find((c) => c.id === rel.fromColumn);
+      const tc = tt.columns.find((c) => c.id === rel.toColumn);
+      from = `${from} INNER JOIN ${qb(t.name)} ON ${qb(ft.name)}.${qb(fc.name)} = ${qb(tt.name)}.${qb(tc.name)}`;
+    } else {
+      from = `${from}, ${qb(t.name)}`;
+    }
+    used.add(tId);
+  }
+
+  const where = q.where.map((w) => {
+    const t = schema.tables[w.tableId]; const c = t?.columns.find((x) => x.id === w.colId);
+    if (!t || !c) return null;
+    const f = `${qb(t.name)}.${qb(c.name)}`;
+    const numType = c.type === "nombre";
+    const v = w.value;
+    const lit = (val) => numType && !isNaN(Number(val)) ? String(Number(val)) : `'${String(val).replace(/'/g, "''")}'`;
+    switch (w.op) {
+      case "eq": return `${f} = ${lit(v)}`;
+      case "ne": return `${f} <> ${lit(v)}`;
+      case "contains": return `${f} LIKE '*${String(v).replace(/'/g, "''")}*'`;
+      case "gt": return `${f} > ${lit(v)}`;
+      case "lt": return `${f} < ${lit(v)}`;
+      case "gte": return `${f} >= ${lit(v)}`;
+      case "lte": return `${f} <= ${lit(v)}`;
+      case "empty": return `(${f} IS NULL OR ${f} = '')`;
+      case "notempty": return `(${f} IS NOT NULL AND ${f} <> '')`;
+    }
+    return null;
+  }).filter(Boolean);
+
+  const orderBy = q.orderBy.map((o) => {
+    const f = fq(o.tableId, o.colId);
+    return f ? `${f} ${o.dir === "DESC" ? "DESC" : "ASC"}` : null;
+  }).filter(Boolean);
+
+  let sql = `SELECT ${select}\nFROM ${from}`;
+  if (where.length) sql += `\nWHERE ${where.join("\n  AND ")}`;
+  if (orderBy.length) sql += `\nORDER BY ${orderBy.join(", ")}`;
+  return sql + ";";
+}
+
+document.getElementById("newQueryBtn").addEventListener("click", () => {
+  const id = uid("qry");
+  schema.queries = schema.queries || [];
+  schema.queries.push({ id, name: "Nouvelle requête", tables: [], columns: [], joins: [], where: [], orderBy: [] });
+  currentQueryId = id; persist(); renderQueriesTab();
 });
 
 // ============================================================
