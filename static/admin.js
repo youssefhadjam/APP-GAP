@@ -194,13 +194,14 @@ let rowsSearch = "";
 function renderColsList(t) {
   const c = document.getElementById("colsList");
   if (t.columns.length === 0) { c.innerHTML = `<p class="text-xs text-zinc-500">Aucune colonne.</p>`; return; }
+  c.className = "grid gap-2 sm:grid-cols-2 xl:grid-cols-3";
   c.innerHTML = t.columns.map((col) => `
-    <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
-      <input data-col="${col.id}" data-field="name" value="${escapeAttr(col.name)}" class="flex-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm" />
+    <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 min-w-0">
+      <input data-col="${col.id}" data-field="name" value="${escapeAttr(col.name)}" class="flex-1 min-w-0 rounded border border-zinc-200 bg-white px-2 py-1 text-sm" />
       <select data-col="${col.id}" data-field="type" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
         ${COLUMN_TYPES.map((tp) => `<option ${col.type===tp?'selected':''}>${tp}</option>`).join("")}
       </select>
-      <label class="flex items-center gap-1 text-xs text-zinc-600"><input data-col="${col.id}" data-field="editable" type="checkbox" ${col.editable?'checked':''} /> Éditable</label>
+      <label class="flex items-center gap-1 text-xs text-zinc-600 whitespace-nowrap"><input data-col="${col.id}" data-field="editable" type="checkbox" ${col.editable?'checked':''} /> Éd.</label>
       <button data-del="${col.id}" class="text-red-500 hover:text-red-700">✕</button>
     </div>
   `).join("");
