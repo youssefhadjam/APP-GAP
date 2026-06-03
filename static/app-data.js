@@ -55,15 +55,31 @@ function _normalize(parsed) {
   };
 }
 
+const CHUNK_ROWS = 3000;
+
 async function loadSchema() {
   // 1) Supabase (source de vérité)
   if (typeof sb !== "undefined") {
     try {
-      const { data, error } = await sb.from("app_state").select("data").eq("key", "main").maybeSingle();
-      if (!error && data && data.data) {
-        const norm = _normalize(data.data);
-        try { await idbKeyval.set(STORE_KEY, norm); } catch {}
-        return norm;
+      const { data: rows, error } = await sb.from("app_state").select("key,data");
+      if (!error && rows && rows.length > 0) {
+        const mainRow = rows.find((r) => r.key === "main");
+        if (mainRow && mainRow.data) {
+          const norm = _normalize(mainRow.data);
+          // Charge les rows depuis les chunks
+          for (const t of Object.values(norm.tables)) {
+            t.rows = [];
+            const chunks = rows
+              .filter((r) => r.key.startsWith(`rows:${t.id}:`))
+              .map((r) => ({ idx: parseInt(r.key.split(":").pop(), 10), data: r.data }))
+              .sort((a, b) => a.idx - b.idx);
+            for (const c of chunks) {
+              if (c.data && Array.isArray(c.data.chunk)) t.rows.push(...c.data.chunk);
+            }
+          }
+          try { await idbKeyval.set(STORE_KEY, norm); } catch {}
+          return norm;
+        }
       }
       if (error) console.warn("Supabase load error", error);
     } catch (e) {
@@ -82,13 +98,6 @@ async function loadSchema() {
     }
   } catch {}
   const norm = _normalize(parsed);
-  // Si Supabase est vide mais l'IDB contient des données → push initial
-  if (parsed && typeof sb !== "undefined") {
-    sb.from("app_state").upsert({ key: "main", data: norm, updated_at: new Date().toISOString() }).then(({ error }) => {
-      if (error) console.warn("Initial upload failed", error);
-      else _showSyncOk();
-    });
-  }
   return norm;
 }
 
@@ -103,19 +112,57 @@ function setCurrentUnit(u) {
 }
 
 let _saveQueue = Promise.resolve();
+let _saveTimer = null;
 function saveSchema(s) {
+  // cache local immédiat
+  try { idbKeyval.set(STORE_KEY, s); } catch (e) { console.warn("IDB save failed", e); }
+  // debounce remote
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => { _pushRemote(s); }, 400);
+}
+
+function _pushRemote(s) {
   _saveQueue = _saveQueue
     .then(async () => {
-      try { await idbKeyval.set(STORE_KEY, s); } catch (e) { console.warn("IDB save failed", e); }
-      if (typeof sb !== "undefined") {
-        _showSyncing();
-        const { error } = await sb.from("app_state").upsert({ key: "main", data: s, updated_at: new Date().toISOString() });
-        if (error) {
-          console.error("Supabase save error", error);
-          _showSyncError(error.message || String(error));
-        } else {
-          _showSyncOk();
+      if (typeof sb === "undefined") return;
+      _showSyncing();
+      try {
+        // main = schema sans les rows volumineux
+        const main = {
+          ..._normalize(s),
+          tables: Object.fromEntries(Object.entries(s.tables).map(([id, t]) => [id, {
+            id: t.id, name: t.name, columns: t.columns, _rowsChunks: Math.ceil((t.rows || []).length / CHUNK_ROWS)
+          }])),
+        };
+        const upserts = [{ key: "main", data: main, updated_at: new Date().toISOString() }];
+        for (const t of Object.values(s.tables)) {
+          const rows = t.rows || [];
+          const nChunks = Math.max(1, Math.ceil(rows.length / CHUNK_ROWS));
+          for (let i = 0; i < nChunks; i++) {
+            const chunk = rows.slice(i * CHUNK_ROWS, (i + 1) * CHUNK_ROWS);
+            upserts.push({
+              key: `rows:${t.id}:${i}`,
+              data: { chunk },
+              updated_at: new Date().toISOString(),
+            });
+          }
         }
+        // Pousse en lots pour éviter les gros payloads
+        const BATCH = 1;
+        for (let i = 0; i < upserts.length; i += BATCH) {
+          const slice = upserts.slice(i, i + BATCH);
+          const { error } = await sb.from("app_state").upsert(slice);
+          if (error) throw error;
+        }
+        // Nettoyer les anciens chunks orphelins
+        for (const t of Object.values(s.tables)) {
+          const nChunks = Math.max(1, Math.ceil((t.rows || []).length / CHUNK_ROWS));
+          await sb.from("app_state").delete().like("key", `rows:${t.id}:%`).gte("key", `rows:${t.id}:${nChunks}`);
+        }
+        _showSyncOk();
+      } catch (e) {
+        console.error("Supabase save error", e);
+        _showSyncError(e?.message || String(e));
       }
     })
     .catch((e) => { console.error("saveSchema error", e); });
