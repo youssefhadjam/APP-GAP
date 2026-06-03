@@ -83,7 +83,7 @@
     const err = document.getElementById("error");
     if (email === "admin" && password === "admin") {
       try { sessionStorage.setItem("session", "admin"); sessionStorage.removeItem("currentUnit"); } catch {}
-      window.location.href = "select-unit.html";
+      window.location.href = "dashboard.html";
     } else {
       err.textContent = "Identifiants invalides";
       err.classList.remove("hidden");

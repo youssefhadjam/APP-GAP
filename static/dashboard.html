@@ -27,7 +27,6 @@
         <p class="text-sm font-medium text-zinc-900">admin</p>
         <p class="text-xs text-zinc-500">Administrateur</p>
       </div>
-      <a href="select-unit.html" class="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50">Changer d'unité</a>
       <button id="logout" class="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50">
         Déconnexion
       </button>
@@ -68,12 +67,7 @@
     }
   } catch {}
 
-  const _unit = getCurrentUnit();
-  if (!_unit) {
-    window.location.href = "select-unit.html";
-  } else {
-    document.getElementById("unitLabel").textContent = _unit;
-  }
+  document.getElementById("unitLabel").textContent = getCurrentUnit() || "APP-GAP";
 
   document.getElementById("logout").addEventListener("click", () => {
     try { sessionStorage.removeItem("session"); sessionStorage.removeItem("currentUnit"); } catch {}

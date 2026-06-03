@@ -47,8 +47,6 @@ document.getElementById("cfgLink").href = `admin.html#modules`;
 
 (async () => {
   schema = await loadSchema();
-  const unit = getCurrentUnit();
-  if (!unit) { window.location.href = "select-unit.html"; return; }
   if (!mod) {
     document.getElementById("content").innerHTML = `<p class="text-sm text-zinc-500">Module introuvable.</p>`;
     return;
@@ -56,7 +54,8 @@ document.getElementById("cfgLink").href = `admin.html#modules`;
   document.getElementById("modTitle").textContent = mod.label;
   const cfg = schema.moduleConfigs[mod.id];
   const table = cfg?.tableId ? schema.tables[cfg.tableId] : null;
-  document.getElementById("modSub").textContent = (table ? `Source : ${table.name}` : "Non configuré") + ` · Unité ${unit}`;
+  const _u = getCurrentUnit();
+  document.getElementById("modSub").textContent = (table ? `Source : ${table.name}` : "Non configuré") + (_u ? ` · Unité ${_u}` : "");
 
   const content = document.getElementById("content");
   if (!cfg || !cfg.tableId || !table) {
