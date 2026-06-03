@@ -21,7 +21,8 @@
         <p id="modSub" class="text-xs text-zinc-500">—</p>
       </div>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-3">
+      <span id="syncStatus" class="text-xs text-zinc-400">—</span>
       <a id="cfgLink" href="#" class="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Configurer</a>
       <a href="dashboard.html" class="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Retour</a>
     </div>
@@ -195,6 +196,183 @@ function openNewRowModal(table) {
 function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])); }
 function escapeAttr(s) { return escapeHtml(s); }
 
+// ===== Comportement type tableur =====
+let _ssState = null;
+
+function wireSpreadsheet(tbody, pageRows, allCols, table) {
+  _ssState = { tbody, pageRows, allCols, table, sel: null, isDown: false };
+  const state = _ssState;
+
+  function tdAt(r, c) { return tbody.querySelector(`td[data-r="${r}"][data-c="${c}"]`); }
+  function inputIn(td) { return td?.querySelector("input,select") || null; }
+  function getValue(td) {
+    const i = inputIn(td);
+    if (i) return i.value;
+    return td?.textContent?.trim() ?? "";
+  }
+  function setValue(td, v) {
+    const i = inputIn(td);
+    if (!i) return false;
+    i.value = v;
+    i.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  function paintSelection() {
+    tbody.querySelectorAll("td").forEach((td) => {
+      td.classList.remove("bg-indigo-100/70", "ring-1", "ring-indigo-400", "ring-inset");
+    });
+    if (!state.sel) return;
+    const { r1, c1, r2, c2 } = norm(state.sel);
+    for (let r = r1; r <= r2; r++) {
+      for (let c = c1; c <= c2; c++) {
+        const td = tdAt(r, c);
+        if (td) td.classList.add("bg-indigo-100/70");
+      }
+    }
+    const active = tdAt(state.sel.ar, state.sel.ac);
+    if (active) active.classList.add("ring-1", "ring-indigo-400", "ring-inset");
+  }
+
+  function norm(sel) {
+    return {
+      r1: Math.min(sel.r1, sel.r2), r2: Math.max(sel.r1, sel.r2),
+      c1: Math.min(sel.c1, sel.c2), c2: Math.max(sel.c1, sel.c2),
+    };
+  }
+
+  function setSel(r, c, extend) {
+    if (!state.sel || !extend) {
+      state.sel = { r1: r, c1: c, r2: r, c2: c, ar: r, ac: c };
+    } else {
+      state.sel.r2 = r; state.sel.c2 = c;
+    }
+    paintSelection();
+  }
+
+  tbody.addEventListener("mousedown", (e) => {
+    const td = e.target.closest("td[data-r]");
+    if (!td) return;
+    state.isDown = true;
+    const r = +td.dataset.r, c = +td.dataset.c;
+    setSel(r, c, e.shiftKey);
+  });
+  tbody.addEventListener("mouseover", (e) => {
+    if (!state.isDown) return;
+    const td = e.target.closest("td[data-r]");
+    if (!td) return;
+    state.sel.r2 = +td.dataset.r;
+    state.sel.c2 = +td.dataset.c;
+    paintSelection();
+  });
+  document.addEventListener("mouseup", () => { if (_ssState) _ssState.isDown = false; });
+
+  tbody.addEventListener("focusin", (e) => {
+    const td = e.target.closest("td[data-r]");
+    if (td) { setSel(+td.dataset.r, +td.dataset.c, false); }
+  });
+
+  tbody.addEventListener("keydown", (e) => {
+    if (!state.sel) return;
+    const { ar, ac } = state.sel;
+    const rows = pageRows.length, cols = allCols.length;
+    let nr = ar, nc = ac;
+    let handled = true;
+    if (e.key === "Tab") { nc = ac + (e.shiftKey ? -1 : 1); }
+    else if (e.key === "Enter") { nr = ar + (e.shiftKey ? -1 : 1); }
+    else if (e.key === "ArrowDown") { nr = ar + 1; }
+    else if (e.key === "ArrowUp") { nr = ar - 1; }
+    else if (e.key === "ArrowRight") {
+      const i = inputIn(tdAt(ar, ac));
+      if (i && i.tagName === "INPUT" && i.selectionEnd < i.value.length) return;
+      nc = ac + 1;
+    }
+    else if (e.key === "ArrowLeft") {
+      const i = inputIn(tdAt(ar, ac));
+      if (i && i.tagName === "INPUT" && i.selectionStart > 0) return;
+      nc = ac - 1;
+    }
+    else handled = false;
+    if (!handled) return;
+    e.preventDefault();
+    nr = Math.max(0, Math.min(rows - 1, nr));
+    nc = Math.max(0, Math.min(cols - 1, nc));
+    const td = tdAt(nr, nc);
+    const i = inputIn(td);
+    if (i) { i.focus(); if (i.tagName === "INPUT") i.select?.(); }
+    else { td?.focus?.(); setSel(nr, nc, false); }
+  });
+
+  // Ctrl+D : remplir vers le bas (toute la sélection avec la valeur de la 1ère ligne)
+  tbody.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (e.key !== "d" && e.key !== "D") return;
+    e.preventDefault();
+    if (!state.sel) return;
+    const { r1, c1, r2, c2 } = norm(state.sel);
+    for (let c = c1; c <= c2; c++) {
+      const srcVal = getValue(tdAt(r1, c));
+      for (let r = r1 + 1; r <= r2; r++) {
+        setValue(tdAt(r, c), srcVal);
+      }
+    }
+  });
+
+  // Double-clic = "fill handle" : recopier dans toutes les lignes en dessous (page courante)
+  tbody.addEventListener("dblclick", (e) => {
+    const td = e.target.closest("td[data-r]");
+    if (!td) return;
+    if (!e.altKey) return; // Alt+double-clic pour éviter conflit avec édition
+    e.preventDefault();
+    const r = +td.dataset.r, c = +td.dataset.c;
+    const srcVal = getValue(tdAt(r, c));
+    for (let nr = r + 1; nr < pageRows.length; nr++) {
+      setValue(tdAt(nr, c), srcVal);
+    }
+  });
+}
+
+// Copy/paste globaux
+document.addEventListener("copy", (e) => {
+  const s = _ssState;
+  if (!s || !s.sel) return;
+  if (!s.tbody.contains(document.activeElement)) return;
+  const { r1, c1, r2, c2 } = (function (sel) {
+    return { r1: Math.min(sel.r1, sel.r2), r2: Math.max(sel.r1, sel.r2), c1: Math.min(sel.c1, sel.c2), c2: Math.max(sel.c1, sel.c2) };
+  })(s.sel);
+  const lines = [];
+  for (let r = r1; r <= r2; r++) {
+    const row = [];
+    for (let c = c1; c <= c2; c++) {
+      const td = s.tbody.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
+      const i = td?.querySelector("input,select");
+      row.push(i ? i.value : (td?.textContent?.trim() ?? ""));
+    }
+    lines.push(row.join("\t"));
+  }
+  e.clipboardData.setData("text/plain", lines.join("\n"));
+  e.preventDefault();
+});
+
+document.addEventListener("paste", (e) => {
+  const s = _ssState;
+  if (!s || !s.sel) return;
+  if (!s.tbody.contains(document.activeElement)) return;
+  const text = e.clipboardData.getData("text/plain");
+  if (!text) return;
+  e.preventDefault();
+  const lines = text.replace(/\r/g, "").split("\n");
+  const startR = s.sel.ar, startC = s.sel.ac;
+  lines.forEach((line, dr) => {
+    const cells = line.split("\t");
+    cells.forEach((value, dc) => {
+      const td = s.tbody.querySelector(`td[data-r="${startR + dr}"][data-c="${startC + dc}"]`);
+      const i = td?.querySelector("input,select");
+      if (i) { i.value = value; i.dispatchEvent(new Event("change", { bubbles: true })); }
+    });
+  });
+});
+
 const PAGE_SIZE = 100;
 let page = 0;
 let search = "";
@@ -352,23 +530,24 @@ function renderTable(table, cfg) {
     const start = page * PAGE_SIZE;
     const pageRows = filtered.slice(start, start + PAGE_SIZE);
 
-    tb.innerHTML = pageRows.map((row) => `
+    tb.innerHTML = pageRows.map((row, ri) => `
       <tr class="border-t border-zinc-100">
-        ${allCols.map((c) => {
+        ${allCols.map((c, ci) => {
+          const dataAttrs = `data-r="${ri}" data-c="${ci}"`;
           if (c.kind === "join") {
             const val = getJoinedValue(row, table, c.jc, schema);
-            return `<td title="${escapeAttr(val)}" class="px-4 py-2 text-indigo-700 truncate bg-indigo-50/30">${escapeHtml(val)}</td>`;
+            return `<td ${dataAttrs} title="${escapeAttr(val)}" class="px-4 py-2 text-indigo-700 truncate bg-indigo-50/30">${escapeHtml(val)}</td>`;
           }
           const editable = cfg.editableColumns.includes(c.id);
           const val = row[c.id] ?? "";
           if (editable) {
             if (c.type === "liste") {
               const opts = c.ref?.options || [];
-              return `<td class="px-3 py-1 overflow-hidden"><select data-row="${row._id}" data-col="${c.id}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none"><option value="">—</option>${opts.map((o) => `<option ${String(val)===o?'selected':''}>${escapeHtml(o)}</option>`).join("")}</select></td>`;
+              return `<td ${dataAttrs} class="px-3 py-1 overflow-hidden"><select data-row="${row._id}" data-col="${c.id}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none"><option value="">—</option>${opts.map((o) => `<option ${String(val)===o?'selected':''}>${escapeHtml(o)}</option>`).join("")}</select></td>`;
             }
-            return `<td class="px-3 py-1 overflow-hidden"><input title="${escapeAttr(val)}" data-row="${row._id}" data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" value="${escapeAttr(val)}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none" /></td>`;
+            return `<td ${dataAttrs} class="px-3 py-1 overflow-hidden"><input title="${escapeAttr(val)}" data-row="${row._id}" data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" value="${escapeAttr(val)}" class="w-full rounded border border-transparent bg-transparent px-2 py-1 hover:border-zinc-200 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500/20 outline-none" /></td>`;
           }
-          return `<td title="${escapeAttr(val)}" class="px-4 py-2 text-zinc-800 truncate">${escapeHtml(val)}</td>`;
+          return `<td ${dataAttrs} title="${escapeAttr(val)}" class="px-4 py-2 text-zinc-800 truncate">${escapeHtml(val)}</td>`;
         }).join("")}
       </tr>
     `).join("");
@@ -376,6 +555,8 @@ function renderTable(table, cfg) {
       const r = table.rows.find((r) => r._id === el.dataset.row);
       if (r) { r[el.dataset.col] = el.value; saveSchema(schema); }
     }));
+
+    wireSpreadsheet(tb, pageRows, allCols, table);
 
     pager.innerHTML = `
       <span>Page ${page+1} / ${totalPages} · lignes ${start+1}–${Math.min(start+PAGE_SIZE, filtered.length)}</span>
