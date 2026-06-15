@@ -56,7 +56,7 @@ function _normalize(parsed) {
   };
 }
 
-const CHUNK_ROWS = 3000;
+const CHUNK_ROWS = 1000;
 
 async function _fetchSchemaRemote() {
   if (typeof sb === "undefined") return null;
@@ -173,7 +173,7 @@ function _pushRemote(s) {
         let done = 0;
         _showSyncing(`0/${total}`);
 
-        const PAR = 5;
+        const PAR = 2;
         async function pushOne(payload, attempt = 0) {
           const { error } = await sb.from("app_state").upsert(payload);
           if (error) {
