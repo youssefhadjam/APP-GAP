@@ -508,6 +508,8 @@ function renderModuleEditor() {
   cfg.selectors = cfg.selectors || [];
   cfg.joinedColumns = cfg.joinedColumns || [];
   cfg.kpis = cfg.kpis || [];
+  cfg.addForm = cfg.addForm || { parentRefCol: "", pointRefCol: "", fields: [] };
+  cfg.addForm.fields = cfg.addForm.fields || [];
   schema.moduleConfigs[currentModuleId] = cfg;
 
   const tables = Object.values(schema.tables);
@@ -582,6 +584,33 @@ function renderModuleEditor() {
       </div>
 
       <div class="mb-5">
+        <h4 class="mb-2 text-sm font-semibold text-zinc-900">Formulaire "Ajouter un point" (vue form)</h4>
+        <div class="space-y-2">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="mb-1 block text-xs text-zinc-600">Colonne « Repère parent » (saisie utilisateur)</label>
+              <select id="af_parent" class="w-full rounded border border-zinc-300 px-2 py-1 text-sm">
+                <option value="">—</option>
+                ${table.columns.map((c) => `<option value="${c.id}" ${cfg.addForm.parentRefCol===c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join("")}
+              </select>
+            </div>
+            <div>
+              <label class="mb-1 block text-xs text-zinc-600">Colonne « Repère du point » (auto-rempli X1, X2…)</label>
+              <select id="af_point" class="w-full rounded border border-zinc-300 px-2 py-1 text-sm">
+                <option value="">—</option>
+                ${table.columns.map((c) => `<option value="${c.id}" ${cfg.addForm.pointRefCol===c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+          <div class="mt-3 flex items-center justify-between">
+            <p class="text-xs font-medium text-zinc-700">Champs supplémentaires</p>
+            <button id="af_addField" class="text-xs font-medium text-indigo-600 hover:text-indigo-700">+ Ajouter un champ</button>
+          </div>
+          <div id="af_fields" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <div class="mb-5">
         <h4 class="mb-2 text-sm font-semibold text-zinc-900">Compteurs KPI à afficher</h4>
         ${(schema.kpis || []).length === 0
           ? `<p class="text-xs text-zinc-500">Aucun KPI défini. <a class="font-medium text-indigo-600 hover:underline" href="#kpis">Créer un KPI</a></p>`
@@ -647,6 +676,13 @@ function renderModuleEditor() {
     renderFiltersList(table, cfg);
     renderSelectorsList(table, cfg);
     renderJoinsList(table, cfg);
+    renderAddFormFields(table, cfg);
+    document.getElementById("af_parent").addEventListener("change", (e) => { cfg.addForm.parentRefCol = e.target.value; persist(); });
+    document.getElementById("af_point").addEventListener("change", (e) => { cfg.addForm.pointRefCol = e.target.value; persist(); });
+    document.getElementById("af_addField").addEventListener("click", () => {
+      cfg.addForm.fields.push({ label: "", columnId: "", required: false });
+      persist(); renderAddFormFields(table, cfg);
+    });
 
     ed.querySelectorAll("[data-kpi]").forEach((el) => el.addEventListener("change", () => {
       const id = el.dataset.kpi;
@@ -655,6 +691,31 @@ function renderModuleEditor() {
       persist();
     }));
   }
+}
+
+function renderAddFormFields(table, cfg) {
+  const c = document.getElementById("af_fields");
+  if (!c) return;
+  if (cfg.addForm.fields.length === 0) { c.innerHTML = `<p class="text-xs text-zinc-500">Aucun champ supplémentaire.</p>`; return; }
+  c.innerHTML = cfg.addForm.fields.map((f, i) => `
+    <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5">
+      <input data-aff="${i}" data-aft="label" value="${escapeAttr(f.label||"")}" placeholder="Libellé affiché" class="flex-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm" />
+      <select data-aff="${i}" data-aft="columnId" class="rounded border border-zinc-200 bg-white px-2 py-1 text-sm">
+        <option value="">— colonne —</option>
+        ${table.columns.map((col) => `<option value="${col.id}" ${f.columnId===col.id?'selected':''}>${escapeHtml(col.name)}</option>`).join("")}
+      </select>
+      <label class="flex items-center gap-1 text-xs text-zinc-600"><input data-aff="${i}" data-aft="required" type="checkbox" ${f.required?'checked':''} /> Obligatoire</label>
+      <button data-affdel="${i}" class="text-red-500 hover:text-red-700">✕</button>
+    </div>
+  `).join("");
+  c.querySelectorAll("[data-aft]").forEach((el) => el.addEventListener("change", () => {
+    const i = +el.dataset.aff; const k = el.dataset.aft;
+    cfg.addForm.fields[i][k] = k === "required" ? el.checked : el.value;
+    persist();
+  }));
+  c.querySelectorAll("[data-affdel]").forEach((b) => b.addEventListener("click", () => {
+    cfg.addForm.fields.splice(+b.dataset.affdel, 1); persist(); renderAddFormFields(table, cfg);
+  }));
 }
 
 function renderSelectorsList(table, cfg) {

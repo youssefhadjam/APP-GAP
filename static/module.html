@@ -149,41 +149,104 @@ function renderFormLanding(table, cfg) {
     renderTable(table, cfg);
   });
   document.getElementById("addPointBtn").addEventListener("click", () => {
-    openNewRowModal(table);
+    openNewRowModal(table, cfg);
   });
 }
 
-function openNewRowModal(table) {
+function openNewRowModal(table, cfg) {
+  const af = cfg?.addForm;
+  const hasMapping = af && af.parentRefCol;
   const wrap = document.createElement("div");
   wrap.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4";
+
+  if (!hasMapping) {
+    // fallback: tous les champs de la table
+    wrap.innerHTML = `
+      <div class="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="text-base font-semibold text-zinc-900">Ajouter des points — ${escapeHtml(table.name)}</h3>
+          <button id="closeModalBtn" class="text-zinc-400 hover:text-zinc-700">✕</button>
+        </div>
+        <div class="mb-5 rounded-xl border-2 border-indigo-200 bg-indigo-50 p-4">
+          <label class="mb-1 block text-sm font-semibold text-indigo-900">Combien de points à ajouter ?</label>
+          <input id="m_count" type="number" min="1" value="1" class="w-32 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-base font-semibold text-zinc-900" />
+        </div>
+        <p class="mb-2 text-xs text-amber-700">Astuce : configure le mapping du formulaire dans Admin → Modules pour une saisie guidée.</p>
+        <div class="grid gap-3 sm:grid-cols-2">
+          ${table.columns.map((c) => `
+            <div>
+              <label class="mb-1 block text-xs font-medium text-zinc-600">${escapeHtml(c.name)}</label>
+              ${c.type === "liste"
+                ? `<select data-col="${c.id}" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"><option value="">—</option>${(c.options||[]).map((o) => `<option>${escapeHtml(o)}</option>`).join("")}</select>`
+                : `<input data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" />`}
+            </div>
+          `).join("")}
+        </div>
+        <div class="mt-5 flex justify-end gap-2 border-t border-zinc-100 pt-4">
+          <button id="cancelBtn" class="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Annuler</button>
+          <button id="saveBtn" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white">Enregistrer</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector("#closeModalBtn").onclick = close;
+    wrap.querySelector("#cancelBtn").onclick = close;
+    wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
+    wrap.querySelector("#saveBtn").onclick = () => {
+      const count = Math.max(1, parseInt(document.getElementById("m_count").value, 10) || 1);
+      const template = {};
+      wrap.querySelectorAll("[data-col]").forEach((el) => { template[el.dataset.col] = el.value; });
+      for (let i = 0; i < count; i++) {
+        const row = { _id: "row_" + Math.random().toString(36).slice(2,9) };
+        table.columns.forEach((c) => { row[c.id] = template[c.id] || ""; });
+        table.rows.push(row);
+      }
+      saveSchema(schema);
+      close();
+      alert(`${count} point(s) ajouté(s).`);
+    };
+    return;
+  }
+
+  // Mode guidé selon mapping
+  const parentCol = table.columns.find((c) => c.id === af.parentRefCol);
+  const pointCol = af.pointRefCol ? table.columns.find((c) => c.id === af.pointRefCol) : null;
+  const fields = (af.fields || []).map((f) => ({ ...f, col: table.columns.find((c) => c.id === f.columnId) })).filter((f) => f.col);
+
   wrap.innerHTML = `
-    <div class="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+    <div class="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
       <div class="mb-4 flex items-center justify-between">
-        <h3 class="text-base font-semibold text-zinc-900">Ajouter des points — ${escapeHtml(table.name)}</h3>
+        <h3 class="text-base font-semibold text-zinc-900">Ajout d'un point</h3>
         <button id="closeModalBtn" class="text-zinc-400 hover:text-zinc-700">✕</button>
       </div>
-
-      <div class="mb-5 rounded-xl border-2 border-indigo-200 bg-indigo-50 p-4">
-        <label class="mb-1 block text-sm font-semibold text-indigo-900">Combien de points à ajouter ?</label>
-        <input id="m_count" type="number" min="1" value="1" class="w-32 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-base font-semibold text-zinc-900" />
-        <p class="mt-1 text-xs text-indigo-700">Les valeurs renseignées ci-dessous seront recopiées sur chaque point créé. Tu pourras les ajuster ensuite dans le tableau.</p>
+      <div class="space-y-3">
+        <div class="rounded-xl border-2 border-indigo-200 bg-indigo-50 p-4">
+          <label class="mb-1 block text-sm font-semibold text-indigo-900">Nombre de points à ajouter</label>
+          <input id="m_count" type="number" min="1" value="1" class="w-32 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-base font-semibold text-zinc-900" />
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-zinc-700">${escapeHtml(parentCol?.name || "Repère parent")} <span class="text-red-500">*</span></label>
+          <input id="m_parent" required class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" placeholder="Saisir le repère parent" />
+          ${pointCol ? `<p class="mt-1 text-xs text-zinc-500">Les points seront créés dans la colonne <b>${escapeHtml(pointCol.name)}</b> sous la forme <code>&lt;repère&gt;-X1, -X2, …</code> (modifiable ensuite).</p>` : ""}
+        </div>
+        ${fields.map((f, idx) => {
+          const lab = f.label || f.col.name;
+          if (f.col.type === "liste") {
+            return `<div>
+              <label class="mb-1 block text-sm font-medium text-zinc-700">${escapeHtml(lab)}${f.required?' <span class="text-red-500">*</span>':''}</label>
+              <select data-field="${idx}" ${f.required?'required':''} class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"><option value="">—</option>${(f.col.options||[]).map((o) => `<option>${escapeHtml(o)}</option>`).join("")}</select>
+            </div>`;
+          }
+          return `<div>
+            <label class="mb-1 block text-sm font-medium text-zinc-700">${escapeHtml(lab)}${f.required?' <span class="text-red-500">*</span>':''}</label>
+            <input data-field="${idx}" ${f.required?'required':''} type="${f.col.type==='nombre'?'number':f.col.type==='date'?'date':'text'}" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" />
+          </div>`;
+        }).join("")}
       </div>
-
-      <h4 class="mb-3 text-sm font-semibold text-zinc-700">Valeurs communes</h4>
-      <div class="grid gap-3 sm:grid-cols-2">
-        ${table.columns.map((c) => `
-          <div>
-            <label class="mb-1 block text-xs font-medium text-zinc-600">${escapeHtml(c.name)} <span class="text-zinc-400">${c.type}</span></label>
-            ${c.type === "liste"
-              ? `<select data-col="${c.id}" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"><option value="">—</option>${(c.options||[]).map((o) => `<option>${escapeHtml(o)}</option>`).join("")}</select>`
-              : `<input data-col="${c.id}" type="${c.type==='nombre'?'number':c.type==='date'?'date':'text'}" class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" />`}
-          </div>
-        `).join("")}
-      </div>
-
       <div class="mt-5 flex justify-end gap-2 border-t border-zinc-100 pt-4">
         <button id="cancelBtn" class="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Annuler</button>
-        <button id="saveBtn" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white">Enregistrer</button>
+        <button id="saveBtn" class="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-2 text-sm font-medium text-white">Enregistrer le nouveau point</button>
       </div>
     </div>
   `;
@@ -194,16 +257,18 @@ function openNewRowModal(table) {
   wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
   wrap.querySelector("#saveBtn").onclick = () => {
     const count = Math.max(1, parseInt(document.getElementById("m_count").value, 10) || 1);
-    const template = {};
-    wrap.querySelectorAll("[data-col]").forEach((el) => { template[el.dataset.col] = el.value; });
-    const summary = table.columns
-      .filter((c) => template[c.id])
-      .map((c) => `${c.name}: ${template[c.id]}`)
-      .join("\n");
-    if (!confirm(`Créer ${count} point(s) avec :\n\n${summary || "(aucune valeur)"}\n\nConfirmer ?`)) return;
-    for (let i = 0; i < count; i++) {
+    const parentVal = document.getElementById("m_parent").value.trim();
+    if (!parentVal) { alert("Le repère parent est obligatoire."); return; }
+    const fieldVals = fields.map((f, idx) => ({ ...f, value: wrap.querySelector(`[data-field="${idx}"]`).value }));
+    for (const fv of fieldVals) {
+      if (fv.required && !fv.value) { alert(`Le champ "${fv.label || fv.col.name}" est obligatoire.`); return; }
+    }
+    for (let i = 1; i <= count; i++) {
       const row = { _id: "row_" + Math.random().toString(36).slice(2,9) };
-      table.columns.forEach((c) => { row[c.id] = template[c.id] || ""; });
+      table.columns.forEach((c) => { row[c.id] = ""; });
+      row[af.parentRefCol] = parentVal;
+      if (af.pointRefCol) row[af.pointRefCol] = `${parentVal}-X${i}`;
+      for (const fv of fieldVals) row[fv.col.id] = fv.value;
       table.rows.push(row);
     }
     saveSchema(schema);
