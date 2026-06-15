@@ -60,16 +60,16 @@ const CHUNK_ROWS = 500;
 
 async function _fetchSchemaRemote() {
   if (typeof sb === "undefined") return null;
-  // 1) Charger uniquement "main"
   const { data: mainRow, error: mainErr } = await sb.from("app_state").select("data").eq("key", "main").maybeSingle();
   if (mainErr) { console.warn("Supabase main load error", mainErr); return null; }
   if (!mainRow || !mainRow.data) return null;
   const norm = _normalize(mainRow.data);
 
-  // 2) Pour chaque table, charger ses chunks par pages
-  for (const t of Object.values(norm.tables)) {
+  const tableList = Object.values(norm.tables);
+  // Fetch chunks de chaque table en parallèle
+  await Promise.all(tableList.map(async (t) => {
     t.rows = [];
-    const PAGE = 5;
+    const PAGE = 20;
     let from = 0;
     while (true) {
       const to = from + PAGE - 1;
@@ -90,7 +90,7 @@ async function _fetchSchemaRemote() {
       if (page.length < PAGE) break;
       from += PAGE;
     }
-  }
+  }));
   return norm;
 }
 
