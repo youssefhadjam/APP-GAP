@@ -142,6 +142,16 @@ async function loadSchema() {
   if (!local) {
     try { const raw = localStorage.getItem(STORE_KEY); if (raw) { local = JSON.parse(raw); localStorage.removeItem(STORE_KEY); } } catch {}
   }
+
+  // Cache IDB présent et non vide → affichage instantané, refresh en arrière-plan
+  if (local && Object.keys(local.tables || {}).length > 0) {
+    const norm = _normalize(local);
+    _lastSavedSnapshot = _deepSnapshot(norm);
+    _backgroundRefresh();
+    return norm;
+  }
+
+  // Pas de cache → fetch direct
   try {
     const remote = await _fetchSchemaRemote();
     if (remote) {
@@ -149,7 +159,6 @@ async function loadSchema() {
       for (const t of Object.values(remote.tables)) delete t._needsMigration;
       _lastSavedSnapshot = _deepSnapshot(remote);
       if (migrated) {
-        // Force re-push de tout (les tables migrées seront vues comme nouvelles)
         for (const t of Object.values(_lastSavedSnapshot.tables)) {
           t.name = "__migrated__"; t.columns = []; t.rowsById = {};
         }
@@ -162,6 +171,15 @@ async function loadSchema() {
   } catch (e) { console.warn("Supabase load failed, fallback IDB", e); }
   if (local) return _normalize(local);
   return defaultSchema();
+}
+
+function _backgroundRefresh() {
+  _fetchSchemaRemote().then((remote) => {
+    if (!remote) return;
+    for (const t of Object.values(remote.tables)) delete t._needsMigration;
+    idbKeyval.set(STORE_KEY, remote).catch(() => {});
+    _lastSavedSnapshot = _deepSnapshot(remote);
+  }).catch(() => {});
 }
 
 let _lastSavedSnapshot = null;
