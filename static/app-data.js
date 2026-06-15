@@ -69,7 +69,7 @@ async function _fetchSchemaRemote() {
   // Fetch chunks de chaque table en parallèle
   await Promise.all(tableList.map(async (t) => {
     t.rows = [];
-    const PAGE = 20;
+    const PAGE = 5;
     let from = 0;
     while (true) {
       const to = from + PAGE - 1;
