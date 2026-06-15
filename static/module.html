@@ -274,6 +274,8 @@ function openNewRowModal(table, cfg) {
     saveSchema(schema);
     close();
     alert(`${count} point(s) ajouté(s).`);
+    for (const k in selectorValues) delete selectorValues[k];
+    renderTable(table, cfg);
   };
 }
 
