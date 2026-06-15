@@ -66,21 +66,26 @@ async function _fetchSchemaRemote() {
   const norm = _normalize(mainRow.data);
 
   const tableList = Object.values(norm.tables);
-  // Fetch chunks de chaque table en parallèle
   await Promise.all(tableList.map(async (t) => {
     t.rows = [];
     const PAGE = 5;
     let from = 0;
     while (true) {
       const to = from + PAGE - 1;
-      const { data: page, error } = await sb
-        .from("app_state")
-        .select("key,data")
-        .like("key", `rows:${t.id}:%`)
-        .order("key", { ascending: true })
-        .range(from, to);
-      if (error) { console.warn("chunk load error", error); break; }
-      if (!page || page.length === 0) break;
+      let page = null, lastErr = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const res = await sb
+          .from("app_state")
+          .select("key,data")
+          .like("key", `rows:${t.id}:%`)
+          .order("key", { ascending: true })
+          .range(from, to);
+        if (!res.error) { page = res.data; break; }
+        lastErr = res.error;
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      }
+      if (!page) { console.warn("chunk load error after retries", lastErr); break; }
+      if (page.length === 0) break;
       const sorted = page
         .map((r) => ({ idx: parseInt(r.key.split(":").pop(), 10), data: r.data }))
         .sort((a, b) => a.idx - b.idx);
