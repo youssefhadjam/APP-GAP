@@ -135,13 +135,14 @@ function saveSchema(s) {
   _saveTimer = setTimeout(() => { _pushRemote(s); }, 400);
 }
 
+let _lastSavedSchema = null;
+
 function _pushRemote(s) {
+  _lastSavedSchema = s;
   _saveQueue = _saveQueue
     .then(async () => {
       if (typeof sb === "undefined") return;
-      _showSyncing();
       try {
-        // main = schema sans les rows volumineux
         const main = {
           ..._normalize(s),
           tables: Object.fromEntries(Object.entries(s.tables).map(([id, t]) => [id, {
@@ -154,25 +155,45 @@ function _pushRemote(s) {
           const nChunks = Math.max(1, Math.ceil(rows.length / CHUNK_ROWS));
           for (let i = 0; i < nChunks; i++) {
             const chunk = rows.slice(i * CHUNK_ROWS, (i + 1) * CHUNK_ROWS);
-            upserts.push({
-              key: `rows:${t.id}:${i}`,
-              data: { chunk },
-              updated_at: new Date().toISOString(),
-            });
+            upserts.push({ key: `rows:${t.id}:${i}`, data: { chunk }, updated_at: new Date().toISOString() });
           }
         }
-        // Pousse en lots pour éviter les gros payloads
-        const BATCH = 1;
-        for (let i = 0; i < upserts.length; i += BATCH) {
-          const slice = upserts.slice(i, i + BATCH);
-          const { error } = await sb.from("app_state").upsert(slice);
-          if (error) throw error;
+
+        const total = upserts.length;
+        let done = 0;
+        _showSyncing(`0/${total}`);
+
+        const PAR = 5;
+        async function pushOne(payload, attempt = 0) {
+          const { error } = await sb.from("app_state").upsert(payload);
+          if (error) {
+            if (attempt < 3) {
+              await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+              return pushOne(payload, attempt + 1);
+            }
+            throw error;
+          }
         }
-        // Nettoyer les anciens chunks orphelins
-        for (const t of Object.values(s.tables)) {
-          const nChunks = Math.max(1, Math.ceil((t.rows || []).length / CHUNK_ROWS));
-          await sb.from("app_state").delete().like("key", `rows:${t.id}:%`).gte("key", `rows:${t.id}:${nChunks}`);
+
+        async function worker(queue) {
+          while (queue.length) {
+            const p = queue.shift();
+            if (!p) return;
+            await pushOne(p);
+            done++;
+            _showSyncing(`${done}/${total}`);
+          }
         }
+        const queue = upserts.slice();
+        await Promise.all(Array.from({ length: PAR }, () => worker(queue)));
+
+        // Nettoyage orphelins (best-effort)
+        try {
+          for (const t of Object.values(s.tables)) {
+            const nChunks = Math.max(1, Math.ceil((t.rows || []).length / CHUNK_ROWS));
+            await sb.from("app_state").delete().like("key", `rows:${t.id}:%`).gte("key", `rows:${t.id}:${nChunks}`);
+          }
+        } catch {}
         _showSyncOk();
       } catch (e) {
         console.error("Supabase save error", e);
@@ -183,24 +204,35 @@ function _pushRemote(s) {
   return _saveQueue;
 }
 
-function _showSyncing() {
+async function forceSync() {
+  let s = _lastSavedSchema;
+  if (!s) { try { s = await idbKeyval.get(STORE_KEY); } catch {} }
+  if (!s) { alert("Aucune donnée locale à synchroniser."); return; }
+  await _pushRemote(s);
+}
+
+function _showSyncing(progress) {
   const el = document.getElementById("syncStatus");
   if (!el) return;
-  el.textContent = "Synchronisation…";
-  el.className = "text-xs text-zinc-500";
+  el.textContent = progress ? `Synchronisation ${progress}…` : "Synchronisation…";
+  el.className = "text-xs text-zinc-500 cursor-pointer";
+  el.onclick = forceSync;
 }
 function _showSyncOk() {
   const el = document.getElementById("syncStatus");
   if (!el) return;
   el.textContent = "✓ Synchronisé";
-  el.className = "text-xs text-emerald-600";
+  el.className = "text-xs text-emerald-600 cursor-pointer";
+  el.title = "Cliquer pour forcer une re-synchronisation";
+  el.onclick = forceSync;
 }
 function _showSyncError(msg) {
   const el = document.getElementById("syncStatus");
   if (!el) return;
-  el.textContent = "⚠ Sync échouée";
+  el.textContent = "⚠ Sync échouée — cliquer pour réessayer";
   el.title = msg;
-  el.className = "text-xs text-amber-600";
+  el.className = "text-xs text-amber-600 cursor-pointer underline";
+  el.onclick = forceSync;
 }
 
 function uid(prefix) {
