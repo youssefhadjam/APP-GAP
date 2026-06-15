@@ -65,26 +65,47 @@ async function _fetchSchemaRemote() {
   if (mainErr) { console.warn("Supabase main load error", mainErr); return null; }
   const mainData = (mainRow && mainRow.data) || {};
 
-  // 2. Tables (metadata)
+  // 2. Tables (metadata) — d'abord app_tables, sinon fallback sur l'ancien main.tables
   const { data: tablesData, error: tErr } = await sb.from("app_tables").select("id,name,columns");
   if (tErr) { console.warn("app_tables error", tErr); return null; }
   const tables = {};
   for (const t of tablesData || []) {
     tables[t.id] = { id: t.id, name: t.name, columns: t.columns || [], rows: [] };
   }
+  // Migration : tables existant dans ancien main mais pas dans app_tables → on les insère
+  for (const [id, t] of Object.entries(mainData.tables || {})) {
+    if (!tables[id]) {
+      tables[id] = { id, name: t.name, columns: t.columns || [], rows: [], _needsMigration: true };
+    }
+  }
 
-  // 3. Rows par table en parallèle, pagination native PostgREST
+  // 3. Rows par table : nouveau format (app_rows) OU ancien format (chunks dans app_state)
   await Promise.all(Object.values(tables).map(async (t) => {
+    // Si la table est ancienne (pas dans app_tables), charger depuis chunks app_state
+    if (t._needsMigration) {
+      const PAGE = 5;
+      let from = 0;
+      while (true) {
+        const res = await sb.from("app_state").select("key,data").like("key", `rows:${t.id}:%`).order("key", { ascending: true }).range(from, from + PAGE - 1);
+        if (res.error) { console.warn("legacy chunk load error", res.error); break; }
+        const page = res.data || [];
+        if (page.length === 0) break;
+        const sorted = page.map((r) => ({ idx: parseInt(r.key.split(":").pop(), 10), data: r.data })).sort((a, b) => a.idx - b.idx);
+        for (const c of sorted) {
+          if (c.data && Array.isArray(c.data.chunk)) t.rows.push(...c.data.chunk);
+        }
+        if (page.length < PAGE) break;
+        from += PAGE;
+      }
+      return;
+    }
+    // Nouveau format
     const PAGE = 200;
     let from = 0;
     while (true) {
       let res = null, lastErr = null;
       for (let attempt = 0; attempt < 4; attempt++) {
-        res = await sb.from("app_rows")
-          .select("id,data")
-          .eq("table_id", t.id)
-          .order("id", { ascending: true })
-          .range(from, from + PAGE - 1);
+        res = await sb.from("app_rows").select("id,data").eq("table_id", t.id).order("id", { ascending: true }).range(from, from + PAGE - 1);
         if (!res.error) break;
         lastErr = res.error;
         await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
@@ -117,7 +138,17 @@ async function loadSchema() {
   try {
     const remote = await _fetchSchemaRemote();
     if (remote) {
+      const migrated = Object.values(remote.tables).some((t) => t._needsMigration);
+      for (const t of Object.values(remote.tables)) delete t._needsMigration;
       _lastSavedSnapshot = _deepSnapshot(remote);
+      if (migrated) {
+        // Force re-push de tout (les tables migrées seront vues comme nouvelles)
+        for (const t of Object.values(_lastSavedSnapshot.tables)) {
+          t.name = "__migrated__"; t.columns = []; t.rowsById = {};
+        }
+        console.log("Migration : push des anciennes données vers le nouveau schéma…");
+        saveSchema(remote);
+      }
       try { await idbKeyval.set(STORE_KEY, remote); } catch {}
       return remote;
     }
