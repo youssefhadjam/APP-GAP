@@ -60,19 +60,35 @@ const CHUNK_ROWS = 3000;
 
 async function _fetchSchemaRemote() {
   if (typeof sb === "undefined") return null;
-  const { data: rows, error } = await sb.from("app_state").select("key,data");
-  if (error || !rows || rows.length === 0) return null;
-  const mainRow = rows.find((r) => r.key === "main");
+  // 1) Charger uniquement "main"
+  const { data: mainRow, error: mainErr } = await sb.from("app_state").select("data").eq("key", "main").maybeSingle();
+  if (mainErr) { console.warn("Supabase main load error", mainErr); return null; }
   if (!mainRow || !mainRow.data) return null;
   const norm = _normalize(mainRow.data);
+
+  // 2) Pour chaque table, charger ses chunks par pages
   for (const t of Object.values(norm.tables)) {
     t.rows = [];
-    const chunks = rows
-      .filter((r) => r.key.startsWith(`rows:${t.id}:`))
-      .map((r) => ({ idx: parseInt(r.key.split(":").pop(), 10), data: r.data }))
-      .sort((a, b) => a.idx - b.idx);
-    for (const c of chunks) {
-      if (c.data && Array.isArray(c.data.chunk)) t.rows.push(...c.data.chunk);
+    const PAGE = 5;
+    let from = 0;
+    while (true) {
+      const to = from + PAGE - 1;
+      const { data: page, error } = await sb
+        .from("app_state")
+        .select("key,data")
+        .like("key", `rows:${t.id}:%`)
+        .order("key", { ascending: true })
+        .range(from, to);
+      if (error) { console.warn("chunk load error", error); break; }
+      if (!page || page.length === 0) break;
+      const sorted = page
+        .map((r) => ({ idx: parseInt(r.key.split(":").pop(), 10), data: r.data }))
+        .sort((a, b) => a.idx - b.idx);
+      for (const c of sorted) {
+        if (c.data && Array.isArray(c.data.chunk)) t.rows.push(...c.data.chunk);
+      }
+      if (page.length < PAGE) break;
+      from += PAGE;
     }
   }
   return norm;
