@@ -70,6 +70,24 @@ function openModal(title, bodyHTML, actions, opts) {
 function closeModal() { modal.classList.add("hidden"); modal.classList.remove("flex"); }
 
 // ====== Import / Export ======
+document.getElementById("wipeBtn").addEventListener("click", async () => {
+  if (!confirm("⚠ Cela va supprimer DÉFINITIVEMENT toutes les tables, données, modules, KPI, relations et unités (Supabase + cache local).\n\nContinuer ?")) return;
+  if (!confirm("Dernière confirmation : tout sera perdu. Confirmer ?")) return;
+  try {
+    if (typeof sb !== "undefined") {
+      const { error } = await sb.from("app_state").delete().neq("key", "");
+      if (error) throw error;
+    }
+    try { await idbKeyval.del(STORE_KEY); } catch {}
+    schema = defaultSchema();
+    currentTableId = null; currentModuleId = null; currentKpiId = null; currentQueryId = null;
+    alert("Tout a été supprimé.");
+    location.reload();
+  } catch (e) {
+    alert("Erreur : " + (e?.message || e));
+  }
+});
+
 document.getElementById("exportBtn").addEventListener("click", () => {
   const blob = new Blob([JSON.stringify(schema, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
