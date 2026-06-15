@@ -60,74 +60,83 @@ const CHUNK_ROWS = 500;
 
 async function _fetchSchemaRemote() {
   if (typeof sb === "undefined") return null;
+  // 1. Configs principales
   const { data: mainRow, error: mainErr } = await sb.from("app_state").select("data").eq("key", "main").maybeSingle();
   if (mainErr) { console.warn("Supabase main load error", mainErr); return null; }
-  if (!mainRow || !mainRow.data) return null;
-  const norm = _normalize(mainRow.data);
+  const mainData = (mainRow && mainRow.data) || {};
 
-  const tableList = Object.values(norm.tables);
-  await Promise.all(tableList.map(async (t) => {
-    t.rows = [];
-    const PAGE = 5;
+  // 2. Tables (metadata)
+  const { data: tablesData, error: tErr } = await sb.from("app_tables").select("id,name,columns");
+  if (tErr) { console.warn("app_tables error", tErr); return null; }
+  const tables = {};
+  for (const t of tablesData || []) {
+    tables[t.id] = { id: t.id, name: t.name, columns: t.columns || [], rows: [] };
+  }
+
+  // 3. Rows par table en parallèle, pagination native PostgREST
+  await Promise.all(Object.values(tables).map(async (t) => {
+    const PAGE = 1000;
     let from = 0;
     while (true) {
-      const to = from + PAGE - 1;
-      let page = null, lastErr = null;
+      let res = null, lastErr = null;
       for (let attempt = 0; attempt < 4; attempt++) {
-        const res = await sb
-          .from("app_state")
-          .select("key,data")
-          .like("key", `rows:${t.id}:%`)
-          .order("key", { ascending: true })
-          .range(from, to);
-        if (!res.error) { page = res.data; break; }
+        res = await sb.from("app_rows")
+          .select("id,data")
+          .eq("table_id", t.id)
+          .order("id", { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (!res.error) break;
         lastErr = res.error;
         await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
       }
-      if (!page) { console.warn("chunk load error after retries", lastErr); break; }
-      if (page.length === 0) break;
-      const sorted = page
-        .map((r) => ({ idx: parseInt(r.key.split(":").pop(), 10), data: r.data }))
-        .sort((a, b) => a.idx - b.idx);
-      for (const c of sorted) {
-        if (c.data && Array.isArray(c.data.chunk)) t.rows.push(...c.data.chunk);
-      }
-      if (page.length < PAGE) break;
+      if (res.error) { console.warn("rows load error", lastErr); break; }
+      const rows = res.data || [];
+      if (rows.length === 0) break;
+      for (const r of rows) t.rows.push({ _id: r.id, ...(r.data || {}) });
+      if (rows.length < PAGE) break;
       from += PAGE;
     }
   }));
-  return norm;
+
+  return {
+    tables,
+    relations: mainData.relations || [],
+    moduleConfigs: mainData.moduleConfigs || {},
+    units: mainData.units || [],
+    kpis: mainData.kpis || [],
+    queries: mainData.queries || [],
+  };
 }
 
 async function loadSchema() {
-  // Lit le cache pour fallback offline
   let local = null;
   try { local = await idbKeyval.get(STORE_KEY); } catch {}
   if (!local) {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (raw) { local = JSON.parse(raw); localStorage.removeItem(STORE_KEY); }
-    } catch {}
+    try { const raw = localStorage.getItem(STORE_KEY); if (raw) { local = JSON.parse(raw); localStorage.removeItem(STORE_KEY); } } catch {}
   }
-
-  // Si Supabase répond, c'est la source de vérité
   try {
     const remote = await _fetchSchemaRemote();
     if (remote) {
+      _lastSavedSnapshot = _deepSnapshot(remote);
       try { await idbKeyval.set(STORE_KEY, remote); } catch {}
       return remote;
     }
   } catch (e) { console.warn("Supabase load failed, fallback IDB", e); }
-
-  // Fallback : IDB cache si pas de réseau
   if (local) return _normalize(local);
   return defaultSchema();
 }
 
-function _backgroundRefresh() {
-  _fetchSchemaRemote().then((remote) => {
-    if (remote) idbKeyval.set(STORE_KEY, remote).catch(() => {});
-  }).catch(() => {});
+let _lastSavedSnapshot = null;
+
+function _deepSnapshot(s) {
+  return {
+    tables: Object.fromEntries(Object.entries(s.tables || {}).map(([id, t]) => [id, {
+      id: t.id, name: t.name,
+      columns: JSON.parse(JSON.stringify(t.columns || [])),
+      rowsById: Object.fromEntries((t.rows || []).map((r) => [r._id, _hash(r)])),
+    }])),
+    mainHash: _hash({ relations: s.relations || [], moduleConfigs: s.moduleConfigs || {}, units: s.units || [], kpis: s.kpis || [], queries: s.queries || [] }),
+  };
 }
 
 function getCurrentUnit() {
@@ -150,7 +159,6 @@ function saveSchema(s) {
 }
 
 let _lastSavedSchema = null;
-const _lastPushed = {}; // key -> hash
 let _isDirty = false;
 
 window.addEventListener("beforeunload", (e) => {
@@ -174,67 +182,130 @@ function _pushRemote(s) {
     .then(async () => {
       if (typeof sb === "undefined") return;
       try {
+        const snap = _lastSavedSnapshot || { tables: {}, mainHash: null };
+
+        // 1) Diff "main" (configs)
         const main = {
-          ..._normalize(s),
-          tables: Object.fromEntries(Object.entries(s.tables).map(([id, t]) => [id, {
-            id: t.id, name: t.name, columns: t.columns, _rowsChunks: Math.ceil((t.rows || []).length / CHUNK_ROWS)
-          }])),
+          relations: s.relations || [],
+          moduleConfigs: s.moduleConfigs || {},
+          units: s.units || [],
+          kpis: s.kpis || [],
+          queries: s.queries || [],
         };
-        const allPayloads = [{ key: "main", data: main }];
-        for (const t of Object.values(s.tables)) {
-          const rows = t.rows || [];
-          const nChunks = Math.max(1, Math.ceil(rows.length / CHUNK_ROWS));
-          for (let i = 0; i < nChunks; i++) {
-            const chunk = rows.slice(i * CHUNK_ROWS, (i + 1) * CHUNK_ROWS);
-            allPayloads.push({ key: `rows:${t.id}:${i}`, data: { chunk } });
+        const mainH = _hash(main);
+        const pushMain = mainH !== snap.mainHash;
+
+        // 2) Diff tables (meta + rows)
+        const newTables = s.tables || {};
+        const oldTables = snap.tables || {};
+
+        const tableMetaUpserts = [];
+        const tableDeletes = [];
+        const rowUpserts = [];
+        const rowDeleteIds = [];
+
+        // Tables ajoutées ou modifiées (meta)
+        for (const [id, t] of Object.entries(newTables)) {
+          const old = oldTables[id];
+          if (!old || old.name !== t.name || _hash(old.columns) !== _hash(t.columns || [])) {
+            tableMetaUpserts.push({ id, name: t.name, columns: t.columns || [], updated_at: new Date().toISOString() });
+          }
+          // Diff rows
+          const oldRows = old?.rowsById || {};
+          const seen = new Set();
+          for (const r of t.rows || []) {
+            seen.add(r._id);
+            const h = _hash(r);
+            if (oldRows[r._id] !== h) {
+              const { _id, ...data } = r;
+              rowUpserts.push({ id: _id, table_id: id, data, updated_at: new Date().toISOString(), _h: h, _tableId: id });
+            }
+          }
+          // Suppressions
+          for (const oldId of Object.keys(oldRows)) {
+            if (!seen.has(oldId)) rowDeleteIds.push(oldId);
           }
         }
 
-        // Filtrer ceux qui ont changé depuis le dernier push
-        const dirty = allPayloads.filter((p) => {
-          const h = _hash(p.data);
-          if (_lastPushed[p.key] === h) return false;
-          p._h = h;
-          return true;
-        });
+        // Tables supprimées
+        for (const oldId of Object.keys(oldTables)) {
+          if (!newTables[oldId]) tableDeletes.push(oldId);
+        }
 
-        if (dirty.length === 0) { _isDirty = false; _showSyncOk(); return; }
-
-        const total = dirty.length;
+        const totalOps = (pushMain ? 1 : 0) + tableMetaUpserts.length + Math.ceil(rowUpserts.length / 500) + (rowDeleteIds.length ? 1 : 0) + (tableDeletes.length ? 1 : 0);
+        if (totalOps === 0) { _isDirty = false; _showSyncOk(); return; }
         let done = 0;
-        _showSyncing(`0/${total}`);
+        _showSyncing(`0/${totalOps}`);
 
-        const PAR = 6;
-        async function pushOne(payload, attempt = 0) {
-          const { error } = await sb.from("app_state").upsert({ key: payload.key, data: payload.data, updated_at: new Date().toISOString() });
-          if (error) {
+        async function withRetry(fn, attempt = 0) {
+          try { return await fn(); }
+          catch (e) {
             if (attempt < 3) {
               await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-              return pushOne(payload, attempt + 1);
+              return withRetry(fn, attempt + 1);
             }
-            throw error;
+            throw e;
           }
-          _lastPushed[payload.key] = payload._h;
         }
+
+        // a) main
+        if (pushMain) {
+          await withRetry(async () => {
+            const { error } = await sb.from("app_state").upsert({ key: "main", data: main, updated_at: new Date().toISOString() });
+            if (error) throw error;
+          });
+          done++; _showSyncing(`${done}/${totalOps}`);
+        }
+
+        // b) tables meta
+        for (const meta of tableMetaUpserts) {
+          await withRetry(async () => {
+            const { error } = await sb.from("app_tables").upsert(meta);
+            if (error) throw error;
+          });
+          done++; _showSyncing(`${done}/${totalOps}`);
+        }
+
+        // c) rows en batches de 500, parallèle
+        const BATCH = 500;
+        const PAR = 4;
+        const batches = [];
+        for (let i = 0; i < rowUpserts.length; i += BATCH) batches.push(rowUpserts.slice(i, i + BATCH));
+
         async function worker(queue) {
           while (queue.length) {
-            const p = queue.shift();
-            if (!p) return;
-            await pushOne(p);
-            done++;
-            _showSyncing(`${done}/${total}`);
+            const batch = queue.shift();
+            if (!batch) return;
+            await withRetry(async () => {
+              const payload = batch.map(({ _h, _tableId, ...r }) => r);
+              const { error } = await sb.from("app_rows").upsert(payload);
+              if (error) throw error;
+            });
+            done++; _showSyncing(`${done}/${totalOps}`);
           }
         }
-        const queue = dirty.slice();
+        const queue = batches.slice();
         await Promise.all(Array.from({ length: PAR }, () => worker(queue)));
 
-        // Nettoyer orphelins (chunks au-delà du nouveau nombre)
-        try {
-          for (const t of Object.values(s.tables)) {
-            const nChunks = Math.max(1, Math.ceil((t.rows || []).length / CHUNK_ROWS));
-            await sb.from("app_state").delete().like("key", `rows:${t.id}:%`).gte("key", `rows:${t.id}:${nChunks}`);
-          }
-        } catch {}
+        // d) row deletes
+        if (rowDeleteIds.length) {
+          await withRetry(async () => {
+            const { error } = await sb.from("app_rows").delete().in("id", rowDeleteIds);
+            if (error) throw error;
+          });
+          done++; _showSyncing(`${done}/${totalOps}`);
+        }
+
+        // e) table deletes (cascade les rows)
+        if (tableDeletes.length) {
+          await withRetry(async () => {
+            const { error } = await sb.from("app_tables").delete().in("id", tableDeletes);
+            if (error) throw error;
+          });
+          done++; _showSyncing(`${done}/${totalOps}`);
+        }
+
+        _lastSavedSnapshot = _deepSnapshot(s);
         _isDirty = false;
         _showSyncOk();
       } catch (e) {
