@@ -138,14 +138,20 @@ function setCurrentUnit(u) {
 let _saveQueue = Promise.resolve();
 let _saveTimer = null;
 function saveSchema(s) {
-  // cache local immédiat
   try { idbKeyval.set(STORE_KEY, s); } catch (e) { console.warn("IDB save failed", e); }
-  // debounce remote
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(() => { _pushRemote(s); }, 400);
+  _saveTimer = setTimeout(() => { _pushRemote(s); }, 1200);
 }
 
 let _lastSavedSchema = null;
+const _lastPushed = {}; // key -> hash
+
+function _hash(obj) {
+  const s = JSON.stringify(obj);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) | 0; }
+  return h.toString(36);
+}
 
 function _pushRemote(s) {
   _lastSavedSchema = s;
@@ -159,23 +165,33 @@ function _pushRemote(s) {
             id: t.id, name: t.name, columns: t.columns, _rowsChunks: Math.ceil((t.rows || []).length / CHUNK_ROWS)
           }])),
         };
-        const upserts = [{ key: "main", data: main, updated_at: new Date().toISOString() }];
+        const allPayloads = [{ key: "main", data: main }];
         for (const t of Object.values(s.tables)) {
           const rows = t.rows || [];
           const nChunks = Math.max(1, Math.ceil(rows.length / CHUNK_ROWS));
           for (let i = 0; i < nChunks; i++) {
             const chunk = rows.slice(i * CHUNK_ROWS, (i + 1) * CHUNK_ROWS);
-            upserts.push({ key: `rows:${t.id}:${i}`, data: { chunk }, updated_at: new Date().toISOString() });
+            allPayloads.push({ key: `rows:${t.id}:${i}`, data: { chunk } });
           }
         }
 
-        const total = upserts.length;
+        // Filtrer ceux qui ont changé depuis le dernier push
+        const dirty = allPayloads.filter((p) => {
+          const h = _hash(p.data);
+          if (_lastPushed[p.key] === h) return false;
+          p._h = h;
+          return true;
+        });
+
+        if (dirty.length === 0) { _showSyncOk(); return; }
+
+        const total = dirty.length;
         let done = 0;
         _showSyncing(`0/${total}`);
 
-        const PAR = 2;
+        const PAR = 4;
         async function pushOne(payload, attempt = 0) {
-          const { error } = await sb.from("app_state").upsert(payload);
+          const { error } = await sb.from("app_state").upsert({ key: payload.key, data: payload.data, updated_at: new Date().toISOString() });
           if (error) {
             if (attempt < 3) {
               await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
@@ -183,8 +199,8 @@ function _pushRemote(s) {
             }
             throw error;
           }
+          _lastPushed[payload.key] = payload._h;
         }
-
         async function worker(queue) {
           while (queue.length) {
             const p = queue.shift();
@@ -194,10 +210,10 @@ function _pushRemote(s) {
             _showSyncing(`${done}/${total}`);
           }
         }
-        const queue = upserts.slice();
+        const queue = dirty.slice();
         await Promise.all(Array.from({ length: PAR }, () => worker(queue)));
 
-        // Nettoyage orphelins (best-effort)
+        // Nettoyer orphelins (chunks au-delà du nouveau nombre)
         try {
           for (const t of Object.values(s.tables)) {
             const nChunks = Math.max(1, Math.ceil((t.rows || []).length / CHUNK_ROWS));
