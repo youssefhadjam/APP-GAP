@@ -81,7 +81,6 @@ async function _fetchSchemaRemote() {
 
   // 3. Rows par table : nouveau format (app_rows) OU ancien format (chunks dans app_state)
   await Promise.all(Object.values(tables).map(async (t) => {
-    // Si la table est ancienne (pas dans app_tables), charger depuis chunks app_state
     if (t._needsMigration) {
       const PAGE = 5;
       let from = 0;
@@ -99,23 +98,31 @@ async function _fetchSchemaRemote() {
       }
       return;
     }
-    // Nouveau format
-    const PAGE = 200;
+    // Nouveau format : fetch N pages en parallèle
+    const PAGE = 500;
+    const PAR = 8;
+    async function fetchPage(off) {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const res = await sb.from("app_rows").select("id,data").eq("table_id", t.id).order("id", { ascending: true }).range(off, off + PAGE - 1);
+        if (!res.error) return res.data || [];
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+      return null;
+    }
     let from = 0;
     while (true) {
-      let res = null, lastErr = null;
-      for (let attempt = 0; attempt < 4; attempt++) {
-        res = await sb.from("app_rows").select("id,data").eq("table_id", t.id).order("id", { ascending: true }).range(from, from + PAGE - 1);
-        if (!res.error) break;
-        lastErr = res.error;
-        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      const offsets = Array.from({ length: PAR }, (_, i) => from + i * PAGE);
+      const pages = await Promise.all(offsets.map((o) => fetchPage(o)));
+      let stop = false;
+      for (let i = 0; i < pages.length; i++) {
+        const p = pages[i];
+        if (p === null) { stop = true; break; }
+        if (p.length === 0) { stop = true; break; }
+        for (const r of p) t.rows.push({ _id: r.id, ...(r.data || {}) });
+        if (p.length < PAGE) stop = true;
       }
-      if (res.error) { console.warn("rows load error", lastErr); break; }
-      const rows = res.data || [];
-      if (rows.length === 0) break;
-      for (const r of rows) t.rows.push({ _id: r.id, ...(r.data || {}) });
-      if (rows.length < PAGE) break;
-      from += PAGE;
+      if (stop) break;
+      from += PAR * PAGE;
     }
   }));
 
