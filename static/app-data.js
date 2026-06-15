@@ -79,7 +79,7 @@ async function _fetchSchemaRemote() {
 }
 
 async function loadSchema() {
-  // 1) Cache local immédiat
+  // Lit le cache pour fallback offline
   let local = null;
   try { local = await idbKeyval.get(STORE_KEY); } catch {}
   if (!local) {
@@ -89,29 +89,23 @@ async function loadSchema() {
     } catch {}
   }
 
-  if (local) {
-    // Refresh en arrière-plan (les changements distants seront visibles au prochain chargement)
-    _backgroundRefresh();
-    return _normalize(local);
-  }
-
-  // Pas de cache → fetch direct depuis Supabase
+  // Si Supabase répond, c'est la source de vérité
   try {
     const remote = await _fetchSchemaRemote();
     if (remote) {
       try { await idbKeyval.set(STORE_KEY, remote); } catch {}
       return remote;
     }
-  } catch (e) { console.warn("Supabase load failed", e); }
+  } catch (e) { console.warn("Supabase load failed, fallback IDB", e); }
 
+  // Fallback : IDB cache si pas de réseau
+  if (local) return _normalize(local);
   return defaultSchema();
 }
 
 function _backgroundRefresh() {
   _fetchSchemaRemote().then((remote) => {
-    if (remote) {
-      idbKeyval.set(STORE_KEY, remote).catch(() => {});
-    }
+    if (remote) idbKeyval.set(STORE_KEY, remote).catch(() => {});
   }).catch(() => {});
 }
 
