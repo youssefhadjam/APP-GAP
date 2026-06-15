@@ -138,6 +138,7 @@ function setCurrentUnit(u) {
 let _saveQueue = Promise.resolve();
 let _saveTimer = null;
 function saveSchema(s) {
+  _isDirty = true;
   try { idbKeyval.set(STORE_KEY, s); } catch (e) { console.warn("IDB save failed", e); }
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(() => { _pushRemote(s); }, 1200);
@@ -145,6 +146,15 @@ function saveSchema(s) {
 
 let _lastSavedSchema = null;
 const _lastPushed = {}; // key -> hash
+let _isDirty = false;
+
+window.addEventListener("beforeunload", (e) => {
+  if (_isDirty) {
+    e.preventDefault();
+    e.returnValue = "Synchronisation en cours. Quitter maintenant fera perdre les dernières modifications.";
+    return e.returnValue;
+  }
+});
 
 function _hash(obj) {
   const s = JSON.stringify(obj);
@@ -183,7 +193,7 @@ function _pushRemote(s) {
           return true;
         });
 
-        if (dirty.length === 0) { _showSyncOk(); return; }
+        if (dirty.length === 0) { _isDirty = false; _showSyncOk(); return; }
 
         const total = dirty.length;
         let done = 0;
@@ -220,6 +230,7 @@ function _pushRemote(s) {
             await sb.from("app_state").delete().like("key", `rows:${t.id}:%`).gte("key", `rows:${t.id}:${nChunks}`);
           }
         } catch {}
+        _isDirty = false;
         _showSyncOk();
       } catch (e) {
         console.error("Supabase save error", e);
