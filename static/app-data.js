@@ -75,7 +75,7 @@ async function _fetchSchemaRemote() {
 
   // 3. Rows par table en parallèle, pagination native PostgREST
   await Promise.all(Object.values(tables).map(async (t) => {
-    const PAGE = 1000;
+    const PAGE = 200;
     let from = 0;
     while (true) {
       let res = null, lastErr = null;
